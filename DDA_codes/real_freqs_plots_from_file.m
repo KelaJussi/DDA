@@ -1,0 +1,753 @@
+function figs = real_freqs_plots_from_file(file, plotting)
+% REAL_FREQS_PLOTS_FROM_FILE  Plots of a saved real-frequency run (replaces JTK_plots).
+%
+%   real_freqs_plots_from_file(filename)            options saved in Input.plotting
+%   real_freqs_plots_from_file(filename, plotting)  override some of them, e.g.
+%       real_freqs_plots_from_file(f, struct('emitted', struct('enable',true,'wls',1060)))
+%   figs = real_freqs_plots_from_file(...)          figure handles, by plot name
+%
+% filename may be a full path or a name inside dda_results_folder("real"),
+% or the struct returned by load(filename).
+%
+% Plots (Input.plotting.<name>.enable):
+%   dipoles       transmission, |p| vs position and wavelength, profiles, maps;
+%                 once for the driven response and once per selected eigenmode.
+%                 Line arrays (1 x Ny, Nx x 1) and cylinders (cyl_TM, cyl_TE):
+%                 transmission and |p| vs wavelength and position along the line
+%   (Transmission is exp(-ext). If ext < 0 somewhere, the console says why:
+%   usually a polarizability without radiation reaction.)
+%   Q             Q-factor fit of the extinction (calc_Q_varQ_DDA)
+%   incidence     incident field: |E|, phase and angular spectrum
+%   apertures     extinction seen through central apertures of different sizes
+%   emitted       "fraunhofer", "transmitted", "far_field", "quiver_ball"
+%   coefficients  weight of the most excited eigenmodes vs wavelength (eig only)
+%   eig_band      extinction of the (mx,0) and (0,my) modes vs energy (eig only);
+%                 only the direction(s) with more than one particle
+% All wavelengths in the options are in nm. Mode labels are 0-based (mx,my);
+% for line arrays and cylinders (m,0) and (0,m) both mean mode m along the line.
+
+%% Load
+if isstruct(file)
+    S = file;
+else
+    path = char(file);
+    if ~isfile(path), path = fullfile(dda_results_folder("real"), path); end
+    S = load(path);
+end
+Input = S.Input;  C = S.C;  Array = S.Array;
+opt = plotting_defaults();
+if isfield(Input,'plotting'), opt = merge_deep(opt, Input.plotting); end
+if nargin > 1 && ~isempty(plotting), opt = merge_deep(opt, plotting); end
+
+D = prepare(Input, C, double(S.P), double(S.Einc), Array);
+figs = struct();
+negative_extinction_report(D);
+dda_figure('docking', opt.docked);     % tabs in one window (Input.plotting.docked)
+
+%% Plots
+if opt.dipoles.enable
+    figs.dipoles = dipole_overview(D, D.P, exp(-C.ext), 'driven response', opt.dipoles);
+    if D.has_modes
+        lins = [];
+        for r = 1:size(opt.dipoles.modes,1)
+            lin = mode_index(D, opt.dipoles.modes(r,:));
+            if ~isnan(lin), lins(end+1) = lin; end %#ok<AGROW>
+        end
+        if opt.dipoles.n_strongest > 0
+            lins = [lins, strongest_modes(D, opt.dipoles.n_strongest)];
+        end
+        for lin = unique(lins, 'stable')
+            Pm = double(D.P_eigs{lin});   % stored single: |p|^2 ~ 1e-62 underflows
+            Tm = exp(-D.extsall(:,lin).');
+            figs.(sprintf('mode_%d',lin)) = dipole_overview(D, Pm, Tm, ...
+                ['eigenmode ' mode_label(D,lin)], opt.dipoles);
+        end
+    elseif ~isempty(opt.dipoles.modes) && Input.inversion_tool == "eig"
+        fprintf('No per-mode dipole moments in this file (C.P_eigs); mode plots skipped.\n');
+    end
+end
+
+if opt.Q.enable
+    wl0 = opt.Q.wl;
+    if isempty(wl0), wl0 = D.lam(D.ipeak); end
+    figs.Q = dda_figure([100 100 700 500], 'Name', 'Q fit');
+    tlq = tiledlayout(figs.Q, 'flow');              % its own figure: never full
+    tic
+    try
+        calc_Q_varQ_DDA(D.lam, C.ext, wl0, opt.Q.guess, tlq);
+    catch err
+        fprintf('Q fit failed (%s); continuing with the other plots.\n', err.message);
+    end
+    fprintf('Q fit took %.1f s\n', toc);
+end
+
+if opt.incidence.enable, figs.incidence = plot_incidence(D, opt.incidence.wl); end
+if opt.apertures.enable, figs.apertures = plot_apertures(D, opt.apertures.sizes); end
+
+if opt.emitted.enable
+    wls = opt.emitted.wls;
+    if isempty(wls), wls = D.lam(D.ipeak); end
+    for wl = wls(:).'
+        for t = string(opt.emitted.types)
+            f = plot_emitted(D, t, wl, opt.emitted);
+            if ~isempty(f), figs.(sprintf('emitted_%s_%dnm', t, round(wl))) = f; end
+        end
+    end
+end
+
+if opt.coefficients.enable
+    if D.has_coefs, figs.coefficients = plot_coefficients(D, opt.coefficients.n_modes);
+    else, fprintf('No eigenmode coefficients in this file; coefficient plot skipped.\n'); end
+end
+if opt.eig_band.enable
+    if D.has_band, figs.eig_band = plot_eig_band(D);
+    else, fprintf('No tracked mode extinctions in this file; band plot skipped.\n'); end
+end
+
+%% Export
+if strlength(string(opt.export_folder)) > 0
+    if ~isfolder(opt.export_folder), mkdir(opt.export_folder); end
+    names = fieldnames(figs);
+    for n = 1:numel(names)
+        exportgraphics(figs.(names{n}), fullfile(opt.export_folder, [names{n} '.png']), ...
+            'Resolution', 300, 'BackgroundColor', 'none');
+    end
+end
+end
+
+%% ========================================================================
+%  Defaults (the same values DDA_Master sets; used for files without them)
+%% ========================================================================
+function o = plotting_defaults()
+o.enable        = true;
+o.docked        = true;
+o.export_folder = "";
+o.dipoles      = struct('enable',true, 'modes',[0 0; 1 0; 0 1; 0 2; 0 3; 0 4], ...
+                        'n_strongest',0, 'profile_wls',1060.4, 'map_wl',[], 'surf_wls',[]);
+o.Q            = struct('enable',true, 'wl',[], 'guess',30);
+o.incidence    = struct('enable',true, 'wl',800);
+o.apertures    = struct('enable',false, 'sizes',[1 10 20 30 40 60 80]);
+o.emitted      = struct('enable',false, 'types',"fraunhofer", 'wls',630, ...
+                        'angle_lim',2, 'fraunhofer_quantity',"P/alpha", ...
+                        'anglex',linspace(-0.03,0.03,20), 'angley',[]);
+o.coefficients = struct('enable',true, 'n_modes',10);
+o.eig_band     = struct('enable',true);
+end
+
+%% ========================================================================
+%  Data preparation
+%% ========================================================================
+function D = prepare(Input, C, P, Einc, Array)
+D.Input = Input;  D.C = C;  D.Array = Array;
+D.Nk    = size(P,2);
+D.N     = size(Array.r_i,1);
+D.ncomp = size(P,1)/D.N;
+D.P     = P;
+D.Pp    = reshape(P,    D.ncomp, D.N, D.Nk);
+D.Ep    = reshape(Einc, D.ncomp, D.N, D.Nk);
+D.lam   = Input.range.wl(:).'*1e9;                % nm
+D.eV    = 1239.84187./D.lam;
+[~, D.ipeak] = max(abs(C.ext));
+
+% Positions and grid indices (from the positions, so any ordering works)
+r  = double(Array.r_i);
+D.x = r(:,1)*1e6;  D.y = r(:,2)*1e6;              % um
+D.z = zeros(D.N,1); if size(r,2) > 2, D.z = r(:,3)*1e6; end
+tol = 1e-3*min(Input.p(1:2))*1e6;
+[D.xv, ~, D.ix] = uniquetol_simple(D.x, tol);
+[D.yv, ~, D.iy] = uniquetol_simple(D.y, tol);
+D.is_grid = numel(D.xv)*numel(D.yv) == D.N && ...
+            numel(unique(sub2ind([numel(D.yv) numel(D.xv)], D.iy, D.ix))) == D.N;
+
+% Line arrays: the plots use only the direction along the line.
+% Cylinders (along y) always form a line along x.
+D.is_cyl = any(string(Input.dimensionality) == ["cyl_TM","cyl_TE"]);
+if D.is_cyl || (numel(D.yv) == 1 && numel(D.xv) > 1)
+    D.line = "x";  D.lv = D.xv;  D.il = D.ix;  D.lpos = D.x;
+elseif numel(D.xv) == 1 && numel(D.yv) > 1
+    D.line = "y";  D.lv = D.yv;  D.il = D.iy;  D.lpos = D.y;
+else
+    D.line = "";   D.lv = [];    D.il = [];    D.lpos = [];
+end
+
+% Mode data (eigen solver with tracking)
+D.has_modes = isfield(C,'P_eigs');
+D.has_band  = isfield(C,'extsall');
+D.has_coefs = isfield(C,'coefs_ordered');
+if isfield(C,'track')
+    D.shape = C.track.shape;  D.lab_x = C.track.labels_x;  D.lab_y = C.track.labels_y;
+elseif D.has_modes
+    D.shape = size(C.P_eigs); D.lab_x = 0:D.shape(1)-1;     D.lab_y = 0:D.shape(2)-1;
+elseif D.has_band
+    sz = size(C.extsall);     D.shape = sz(2:end);
+    D.lab_x = 0:D.shape(1)-1; D.lab_y = 0:D.shape(2)-1;
+end
+if D.has_band,  D.extsall = reshape(C.extsall, D.Nk, []); end
+if D.has_modes, D.P_eigs  = C.P_eigs(:);                  end
+if D.has_coefs, D.coefs   = reshape(C.coefs_ordered, [], D.Nk); end
+end
+
+function [u, iu, ic] = uniquetol_simple(v, tol)
+[u, iu, ic] = unique(round(v/tol)*tol);
+end
+
+%% ========================================================================
+%  Transmission above 1 (negative extinction)
+%% ========================================================================
+function negative_extinction_report(D)
+% exp(-ext) > 1 means ext < 0: the array gives energy to the field. With
+% passive particles that cannot happen, for any incident field, because
+%   ext ~ sum Im(p.E*) = p' * (Im G - Im(1/alpha)) * p >= 0
+% when every particle satisfies the optical theorem,
+%   Im(1/alpha) <= -k^3/(6 pi eps0 n^2)      point dipoles (SI)
+%   Im(1/alpha) <= -k^2/(4 eps0 n^2)          cyl_TM (per length)
+%   Im(1/alpha) <= -k^2/(8 eps0 n^2)          cyl_TE (per length)
+% This lists what in the run breaks it.
+ext = double(D.C.ext(:).');
+neg = ext < -1e-6*max(abs(ext));                 % (round-off of dark modes is not a cause)
+if D.has_band
+    eb  = double(D.extsall);
+    neg = neg | any(eb < -1e-6*max(abs(eb(:)),[],'omitnan'), 2).';
+end
+if ~any(neg), return; end
+fprintf(['\nTransmission exp(-ext) > 1: the extinction is negative at %d of %d wavelengths ' ...
+         '(driven minimum %.3g).\n'], nnz(neg), D.Nk, min(ext));
+I = D.Input;  found = false;
+
+[excess, rad] = passivity_excess(D);
+if ~isempty(excess)
+    bad = any(excess > 1e-3*rad, 1);             % 1 x Nk (alpha is stored single)
+    if any(bad)
+        found = true;
+        fprintf(['  The particles scatter more than they extinguish at %d of %d wavelengths: ' ...
+                 'Im(1/alpha) is above the radiation-reaction limit by up to %.0f%%.\n'], ...
+                nnz(bad), D.Nk, 100*max(excess(:)./rad(:)));
+        if any(strcmpi(string(I.sample.type), ["Lorentzian","lorentzian","lorentzian Au","nonidentical"]))
+            corr = "none";
+            if isfield(I.particle,'lorentz_correction'), corr = string(I.particle.lorentz_correction); end
+            fprintf(['  Cause: Lorentzian particles with lorentz_correction = "%s" have no radiation ' ...
+                     'reaction.\n  Fix:   Input.particle.lorentz_correction = "radiative" ' ...
+                     '(or "MLWA") and run again.\n'], corr);
+        elseif isfield(I,'Hermitian') && I.Hermitian
+            fprintf('  Cause: Input.Hermitian = true keeps only Re(alpha). Fix: Input.Hermitian = false.\n');
+        elseif isfield(I.particle,'cyl_alpha_legacy') && I.particle.cyl_alpha_legacy && D.is_cyl
+            fprintf('  Cause: Input.particle.cyl_alpha_legacy = true (old cylinder polarizability).\n');
+        elseif string(I.sample.type) == "glass_Mie" && isfield(I,'particle_gain') && I.particle_gain < 0
+            fprintf('  Cause: Input.particle_gain < 0 gives the particles gain (intended?).\n');
+        else
+            fprintf('  Check the polarizability model of Input.sample.type = "%s".\n', I.sample.type);
+        end
+    end
+end
+if isfield(I,'gain') && I.gain ~= 0
+    found = true; fprintf('  Input.gain = %g: gain is intended to give negative extinction.\n', I.gain);
+end
+if isfield(I,'mirror_A') && any(I.mirror_A) && ...
+        ~(isfield(D.C,'solver_version') && D.C.solver_version >= 4)
+    found = true;
+    fprintf(['  Input.mirror_A = [%s] in a result from before the mirror fix: particles on a mirror ' ...
+             'plane were counted twice,\n  which makes the array non-passive. Run it again ' ...
+             '(DDA_Master recalculates such files).\n'], num2str(I.mirror_A));
+end
+if isfield(I,'periodic_boundary') && any(I.periodic_boundary)
+    found = true;
+    if isfield(I,'periodic_cell') && ~isempty(I.periodic_cell)
+        L = double(I.periodic_cell(:).').*[1 1];
+        L = L(logical(I.periodic_boundary(:).'));
+        if any(L > 0 & L < 1e-8)
+            fprintf(['  Input.periodic_cell = [%s] m: far too small (nm typed as m?), so the ' ...
+                     'periodic images sat on top of the particles.\n  The current ' ...
+                     'Make_int_matrix_A_SI stops with an error for this.\n'], num2str(I.periodic_cell));
+        end
+    end
+    fprintf(['  Input.periodic_boundary = [%s]: the truncated lattice sums are not energy ' ...
+             'conserving; more image cells (Input.periodic_Ncells) reduce the error.\n'], ...
+             num2str(I.periodic_boundary));
+end
+if D.is_cyl && isfield(I,'layers') && isfield(I.layers,'enable') && I.layers.enable
+    nl = [I.layers.below_n(:); I.layers.above_n(:)];
+    if any(imag(nl) < 0)
+        found = true; fprintf('  A layer index has a negative imaginary part (gain).\n');
+    end
+end
+if ~found
+    fprintf('  No cause found in the inputs (polarizability, gain, mirrors, periodic boundary).\n');
+end
+fprintf('\n');
+end
+
+function [excess, rad] = passivity_excess(D)
+% excess = Im(1/alpha) + radiation-reaction limit, components x types x Nk
+% flattened to rows x Nk; > 0 means the particle is not passive.
+excess = []; rad = [];
+Ar = D.Array;
+if isfield(Ar,'alpha_types'), A = Ar.alpha_types;
+elseif isfield(Ar,'alpha'),   A = Ar.alpha;
+else, return
+end
+if ~isfield(Ar,'k') || ~isfield(Ar,'n'), return; end
+k = double(Ar.k(:).');  n = double(Ar.n(:).');
+if any(imag(k) ~= 0), return; end                % complex frequencies: not a real-axis check
+eps0 = 8.8541878188e-12;
+dim  = string(D.Input.dimensionality);
+switch dim
+    case "cyl_TM", lim = k.^2./(4*eps0*n.^2);    comps = 1;
+    case "cyl_TE", lim = k.^2./(8*eps0*n.^2);    comps = 1:2;
+    case "1Dx",    lim = k.^3./(6*pi*eps0*n.^2); comps = 1;
+    case "1Dy",    lim = k.^3./(6*pi*eps0*n.^2); comps = 2;
+    case "1Dz",    lim = k.^3./(6*pi*eps0*n.^2); comps = 3;
+    case "2D",     lim = k.^3./(6*pi*eps0*n.^2); comps = 1:2;
+    otherwise,     lim = k.^3./(6*pi*eps0*n.^2); comps = 1:3;
+end
+if ~dda_alpha_is_SI(D.Input, Ar), lim = 2/3*k.^3; end   % Gaussian units
+Nk = numel(k);
+if ismatrix(A)                                   % cyl_TM: types x Nk
+    inv_im = imag(1./double(A));
+else
+    inv_im = [];
+    for c = comps(comps <= size(A,2))
+        inv_im = [inv_im; imag(1./double(reshape(A(:,c,c,:), size(A,1), [])))]; %#ok<AGROW>
+    end
+end
+if size(inv_im,2) ~= Nk, excess = []; return; end
+rad    = repmat(lim, size(inv_im,1), 1);
+excess = inv_im + rad;
+end
+
+%% ========================================================================
+%  Dipole overview (old plot_dipole_moments and plot_dipoles)
+%% ========================================================================
+function fig = dipole_overview(D, Pm, T, what, o)
+pabs = squeeze(sqrt(sum(abs(reshape(Pm, D.ncomp, D.N, D.Nk)).^2, 1)));   % N x Nk
+if D.Nk == 1, pabs = pabs(:); end
+[~, kmap] = min(abs(D.lam - pick(o.map_wl, D.lam(1))));
+
+if D.line ~= ""                                 % line array or cylinders: two panels
+    fig = dda_figure([100 100 1100 420], 'Name', what);
+    tl  = tiledlayout(fig, 1, 2, 'TileSpacing','compact');
+    nexttile(tl)
+    transmission_plot(D, T)
+    nexttile(tl)
+    M = sqrt(accum_rows(D.il, pabs.^2));         % positions x Nk (sums particles at one position)
+    if D.line == "y"
+        imagesc(D.lam, D.lv, M)
+        xlabel('Wavelength (nm)'); ylabel('y (\mum)')
+    else
+        imagesc(D.lv, D.lam, M.')
+        xlabel('x (\mum)'); ylabel('Wavelength (nm)')
+    end
+    set(gca,'YDir','normal'); colormap(gca, pink)
+    c = colorbar; c.Label.String = '|p|';
+    title(sprintf('|p| along %s', D.line))
+    title(tl, sprintf('%s: %s', what, run_label(D)))
+    surface_plots(D, Pm, pabs, what, o)
+    return
+end
+
+fig = dda_figure([100 100 1200 600], 'Name', what);
+tl  = tiledlayout(fig, 2, 3, 'TileSpacing','compact');
+
+nexttile(tl)
+transmission_plot(D, T)
+
+nexttile(tl)                                     % summed over x, per y row
+rows = sqrt(accum_rows(D.iy, pabs.^2));
+imagesc(D.lam, D.yv, rows); set(gca,'YDir','normal')
+xlabel('Wavelength (nm)'); ylabel('y (\mum)'); title('|p| summed over x'); colorbar; colormap(gca, pink)
+
+nexttile(tl)                                     % summed over y, per x column
+cols = sqrt(accum_rows(D.ix, pabs.^2));
+imagesc(D.xv, D.lam, cols.'); set(gca,'YDir','normal')
+xlabel('x (\mum)'); ylabel('Wavelength (nm)'); title('|p| summed over y'); colorbar; colormap(gca, pink)
+
+nexttile(tl)                                     % profile along y through the centre column
+[~, cx] = min(abs(D.xv - mean(D.xv)));
+in = find(D.ix == cx);
+[ys, o2] = sort(D.y(in)); in = in(o2);
+wls = unique([D.lam(D.ipeak), o.profile_wls(:).'], 'stable');
+hold on; leg = strings(0);
+for wl = wls
+    [~, kk] = min(abs(D.lam - wl));
+    plot(ys, pabs(in, kk), 'LineWidth', 2);
+    leg(end+1) = sprintf('%.1f nm', D.lam(kk)); %#ok<AGROW>
+end
+hold off; legend(leg); box on
+xlabel('y (\mum)'); ylabel('|p|'); title('Profile through the centre column')
+
+nexttile(tl)
+map_plot(D, pabs(:, D.ipeak));
+title(sprintf('|p| at the extinction peak, %.1f nm', D.lam(D.ipeak)))
+
+nexttile(tl)
+map_plot(D, pabs(:, kmap));
+title(sprintf('|p| at %.1f nm', D.lam(kmap)))
+
+title(tl, sprintf('%s: %s', what, run_label(D)))
+surface_plots(D, Pm, pabs, what, o)
+end
+
+function surface_plots(D, Pm, pabs, what, o)
+if isempty(o.surf_wls), return; end              % old Input.plotdipoles
+f2 = figure('Name', [what ' surfaces']);
+t2 = tiledlayout(f2, 'flow');
+Pr = reshape(Pm, D.ncomp, D.N, D.Nk);
+for wl = o.surf_wls(:).'
+    [~, kk] = min(abs(D.lam - wl));
+    [~, c]  = max(sum(abs(Pr(:,:,kk)).^2, 2));
+    nexttile(t2)
+    surf_plot(D, pabs(:,kk), angle(Pr(c,:,kk)).');
+    title(sprintf('%.1f nm', D.lam(kk)))
+end
+end
+
+function transmission_plot(D, T)
+plot(D.lam, T, 'LineWidth', 2)
+xlabel('Wavelength (nm)'); ylabel('Transmission exp(-ext)'); box on
+if any(T > 1)
+    title('ext < 0 at some wavelengths: see the console', 'FontWeight','normal', 'Color',[0.8 0 0])
+end
+end
+
+function s = run_label(D)
+I = D.Input;
+if D.is_cyl
+    s = sprintf('%d cylinders, %s', D.N, I.dimensionality);
+else
+    s = sprintf('%d x %d, %s', I.arrayN(1), I.arrayN(min(2,end)), I.dimensionality);
+end
+if isfield(I,'gain') && I.gain ~= 0, s = sprintf('%s, gain %g', s, I.gain); end
+end
+
+function M = accum_rows(idx, vals)
+% Sum the rows of vals (N x Nk) that share the same idx
+M = zeros(max(idx), size(vals,2));
+for k = 1:size(vals,2), M(:,k) = accumarray(idx, vals(:,k)); end
+end
+
+function map_plot(D, v)
+if D.line ~= ""                                  % line: value vs position
+    [ps, o] = sort(D.lpos);
+    plot(ps, v(o), '.-', 'LineWidth', 1.5); box on; axis tight
+    xlabel(sprintf('%s (\\mum)', D.line))
+    return
+end
+if D.is_grid
+    M = NaN(numel(D.yv), numel(D.xv));
+    M(sub2ind(size(M), D.iy, D.ix)) = v;
+    imagesc(D.xv, D.yv, M, 'Interpolation','bilinear'); set(gca,'YDir','normal')
+else
+    scatter(D.x, D.y, 36, v, 'filled'); axis equal tight
+end
+xlabel('x (\mum)'); ylabel('y (\mum)'); colorbar
+end
+
+function surf_plot(D, mag, ph)
+if D.line ~= ""                                  % line: |p| vs position, coloured by phase
+    scatter(D.lpos, mag, 36, ph, 'filled'); box on
+    colormap(gca, hsv); clim([-pi pi]); colorbar
+    xlabel(sprintf('%s (\\mum)', D.line)); ylabel('|p|')
+    return
+end
+if D.is_grid
+    M = NaN(numel(D.yv), numel(D.xv)); F = M;
+    M(sub2ind(size(M), D.iy, D.ix)) = mag;
+    F(sub2ind(size(F), D.iy, D.ix)) = ph;
+    surf(D.xv, D.yv, M, F, 'EdgeColor','none')
+else
+    scatter3(D.x, D.y, mag, 36, ph, 'filled')
+end
+colormap(gca, hsv); clim([-pi pi]); colorbar
+xlabel('x (\mum)'); ylabel('y (\mum)'); zlabel('|p|')
+end
+
+function v = pick(v, default)
+if isempty(v), v = default; end
+end
+
+%% ========================================================================
+%  Eigenmode helpers
+%% ========================================================================
+function lin = mode_index(D, row)
+% row = [mx my] or [mx my pol] (0-based labels, pol 1..3); NaN if not available
+lin = NaN;
+if ~D.has_modes, return; end
+if D.line ~= "" && any(row(1:2) == 0)            % line array: (m,0) and (0,m) = mode m along the line
+    m = sum(row(1:2));
+    if D.line == "x", row(1:2) = [m 0]; else, row(1:2) = [0 m]; end
+end
+ix = find(D.lab_x == row(1), 1);  iy = find(D.lab_y == row(2), 1);
+if isempty(ix) || isempty(iy)
+    fprintf('Mode (%d,%d) is not in this array; skipped.\n', row(1), row(2)); return
+end
+sub = ones(1, numel(D.shape)); sub(1) = ix; sub(2) = iy;
+if numel(D.shape) >= 3
+    if numel(row) >= 3
+        sub(3) = row(3);
+    elseif D.has_band                  % polarization with the strongest extinction
+        best = -inf;
+        for p = 1:D.shape(3)
+            sub(3) = p;
+            e = max(D.extsall(:, sub2ind_vec(D.shape, sub)));
+            if e > best, best = e; bp = p; end
+        end
+        sub(3) = bp;
+    end
+end
+lin = sub2ind_vec(D.shape, sub);
+end
+
+function lin = sub2ind_vec(shape, sub)
+c = num2cell(sub); lin = sub2ind([shape 1], c{:});
+end
+
+function lins = strongest_modes(D, n)
+if ~D.has_coefs, lins = []; return; end
+a = abs(D.coefs(:, D.ipeak)); a(isnan(a)) = -inf;   % unassigned slots last
+[~, lins] = maxk(a, n);
+lins = lins(:).';
+end
+
+function s = mode_label(D, lin)
+sub = cell(1, numel(D.shape)); [sub{:}] = ind2sub([D.shape 1], lin);
+s = sprintf('(%d,%d)', D.lab_x(sub{1}), D.lab_y(sub{2}));
+if numel(D.shape) >= 3 && D.shape(3) > 1, s = [s, ' ', comp_name(sub{3}), '-pol']; end
+if numel(D.shape) >= 4 && D.shape(4) > 1, s = sprintf('%s, branch %d', s, sub{4}); end
+end
+
+%% ========================================================================
+%  Incident field (old plot_incidence)
+%% ========================================================================
+function fig = plot_incidence(D, wl)
+[~, kk] = min(abs(D.lam - wl));
+E = D.Ep(:,:,kk);
+[~, c] = max(sum(abs(E).^2, 2));
+v = E(c,:).';
+fig = dda_figure([100 100 1200 400], 'Name','incident field');
+tl = tiledlayout(fig, 1, 3, 'TileSpacing','compact');
+
+nexttile(tl); map_plot(D, abs(v));
+title(sprintf('|E_%s|', comp_name(c))); clim([0 max(abs(v))])
+nexttile(tl); map_plot(D, angle(v)/pi); colormap(gca, hsv); clim([-1 1]); title('Phase/\pi')
+
+nexttile(tl)
+if D.line ~= ""                                  % line: spectrum along the line only
+    [th, Pw] = angular_spectrum_line(D, v, kk);
+    plot(th, Pw, 'LineWidth', 1.5); box on; axis tight
+    xlabel(sprintf('\\theta_%s (deg)', D.line)); ylabel('|FFT|^2'); title('Angular spectrum')
+elseif D.is_grid
+    [TX, TY, Pw] = angular_spectrum(D, v, kk);
+    surf(TX, TY, Pw, 'EdgeColor','none'); view(2); axis tight
+    xlabel('\theta_x (deg)'); ylabel('\theta_y (deg)'); title('Angular spectrum'); colorbar
+else
+    axis off; text(0.1, 0.5, 'Angular spectrum needs a rectangular grid')
+end
+title(tl, sprintf('%.1f nm, \\theta = %.1f, \\phi = %.1f, \\psi = %.1f', ...
+    D.lam(kk), D.Input.theta, D.Input.phi, D.Input.psi))
+end
+
+function [th, Pw] = angular_spectrum_line(D, v, kk, nn)
+% |FFT|^2 along a line array, on propagating angles only
+if nargin < 4, nn = 1024; end
+L = zeros(numel(D.lv), 1);
+L(D.il) = v;                                     % (stacked particles: the last one)
+d = mean(diff(D.lv))*1e-6;                       % spacing along the line [m]
+if isempty(d) || ~isfinite(d) || d <= 0, d = D.Input.p(1 + (D.line == "y")); end
+F  = fftshift(fft(L, nn));
+k0 = 2*pi/(D.lam(kk)*1e-9);
+kl = 2*pi*(-nn/2:nn/2-1).'/(nn*d);
+ok = abs(kl) < k0;
+th = asind(kl(ok)/k0);
+Pw = abs(F(ok)).^2/nn;
+end
+
+function [TX, TY, Pw, F] = angular_spectrum(D, v, kk, nn)
+% |FFT|^2 of a grid map, on propagating angles only
+if nargin < 4, nn = 1024; end
+M = zeros(numel(D.yv), numel(D.xv));
+M(sub2ind(size(M), D.iy, D.ix)) = v;
+F  = fftshift(fft2(M, nn, nn));
+k0 = 2*pi/(D.lam(kk)*1e-9);
+fx = (-nn/2:nn/2-1)/(nn*D.Input.p(1));  kx = 2*pi*fx;
+fy = (-nn/2:nn/2-1)/(nn*D.Input.p(2));  ky = 2*pi*fy;
+okx = abs(kx) < k0;  oky = abs(ky) < k0;
+[TX, TY] = meshgrid(asind(kx(okx)/k0), asind(ky(oky)/k0));
+F  = F(oky, okx);
+Pw = abs(F).^2/nn;
+end
+
+%% ========================================================================
+%  Apertures (old plot_transmission_apertures)
+%% ========================================================================
+function fig = plot_apertures(D, sizes)
+cx = (max(D.ix)+1)/2;  cy = (max(D.iy)+1)/2;
+fig = figure('Name','apertures'); hold on
+leg = strings(0);
+for a = sizes(:).'
+    sel = abs(D.ix - cx) < a/2 & abs(D.iy - cy) < a/2;
+    if ~any(sel) || all(sel), continue; end
+    plot(D.lam, dda_extinction(D.P, reshape(D.Ep,[],D.Nk), D.Input, D.Array, sel), 'LineWidth', 1.5)
+    leg(end+1) = sprintf('%d x %d particles (%.1f x %.1f \\mum)', min(a,max(D.ix)), ...
+        min(a,max(D.iy)), min(a,max(D.ix))*D.Input.p(1)*1e6, min(a,max(D.iy))*D.Input.p(2)*1e6); %#ok<AGROW>
+end
+plot(D.lam, D.C.ext, 'k', 'LineWidth', 2); leg(end+1) = "whole array";
+hold off; legend(leg, 'Location','best'); box on
+xlabel('Wavelength (nm)'); ylabel('Extinction')
+title('Extinction through central apertures')
+end
+
+%% ========================================================================
+%  Emitted / transmitted fields (old plot_emitted)
+%% ========================================================================
+function fig = plot_emitted(D, type, wl, o)
+fig = [];
+[~, kk] = min(abs(D.lam - wl));
+[~, c]  = max(sum(abs(D.Ep(:,:,kk)).^2, 2));         % dominant incident component
+switch type
+    case {"fraunhofer","transmitted"}
+        if ~D.is_grid
+            fprintf('"%s" needs a rectangular grid; skipped.\n', type); return
+        end
+        p   = D.Pp(c,:,kk).';
+        alp = local_alpha(D, c, kk);
+        if type == "fraunhofer"
+            if string(o.fraunhofer_quantity) == "P", q = p; else, q = p./alp; end
+            [TX, TY, ~, F] = angular_spectrum(D, q, kk);
+            fig = figure('Name', sprintf('Fraunhofer %.0f nm', D.lam(kk)));
+            tl = tiledlayout(fig, 1, 2);
+            nexttile(tl); surf(TX,TY,abs(F),'EdgeColor','none'); view(2); colorbar; title('|F|')
+            lim_axes(o.angle_lim)
+            nexttile(tl); surf(TX,TY,real(F),'EdgeColor','none'); view(2); colorbar; title('Re F')
+            lim_axes(o.angle_lim)
+            title(tl, sprintf('Fraunhofer pattern of %s, %.1f nm', o.fraunhofer_quantity, D.lam(kk)))
+        else
+            [TX, TY, ~, Finc] = angular_spectrum(D, D.Ep(c,:,kk).', kk);
+            [~,  ~,  ~, Femi] = angular_spectrum(D, p./alp/4/pi, kk);
+            Ft = Finc - Femi;
+            fig = figure('Name', sprintf('transmitted %.0f nm', D.lam(kk)));
+            tl = tiledlayout(fig, 1, 2);
+            nexttile(tl); surf(TX,TY,abs(Ft),'EdgeColor','none'); view(2); colorbar
+            title('|E_{transmitted}|'); lim_axes(o.angle_lim)
+            nexttile(tl); surf(TX,TY,abs(Ft).^2./abs(Finc).^2,'EdgeColor','none'); view(2)
+            colorbar; clim([0 1]); title('Transmission'); lim_axes(o.angle_lim)
+            title(tl, sprintf('Transmitted field, %.1f nm', D.lam(kk)))
+        end
+
+    case "far_field"
+        ax = o.anglex(:).';  ay = o.angley;  if isempty(ay), ay = ax.'; end
+        [th, ph] = anglexy_to_theta_phi(ax, ay(:));
+        rh = reshape(thetaphi_to_rhat(th, ph), [], 3);
+        E  = far_field(D, rh, kk);
+        fig = figure('Name', sprintf('far field %.0f nm', D.lam(kk)));
+        imagesc(rad2deg(ax), rad2deg(ay), reshape(sqrt(sum(abs(E).^2,2)), numel(ay), numel(ax)), ...
+            'Interpolation','bilinear'); set(gca,'YDir','normal'); colorbar
+        xlabel('\theta_x (deg)'); ylabel('\theta_y (deg)')
+        title(sprintf('|E| emitted, %.1f nm', D.lam(kk)))
+
+    case "quiver_ball"
+        [TH, PH] = meshgrid(linspace(0,pi,60), linspace(0,2*pi,60));
+        rh = reshape(thetaphi_to_rhat(TH, PH), [], 3);
+        E  = far_field(D, rh, kk);
+        mag = reshape(sqrt(sum(abs(E).^2,2)), size(TH));
+        X = reshape(rh(:,1),size(TH)); Y = reshape(rh(:,2),size(TH)); Z = reshape(rh(:,3),size(TH));
+        fig = figure('Name', sprintf('quiver ball %.0f nm', D.lam(kk)));
+        surf(X, Y, Z, mag/max(mag(:)), 'EdgeColor','none', 'FaceColor','interp'); hold on
+        s = 1:6:numel(TH);  Er = real(E(s,:)); Er = Er./max(vecnorm(Er,2,2), eps);
+        quiver3(X(s).', Y(s).', Z(s).', Er(:,1).', Er(:,2).', Er(:,3).', 0.3, 'k')
+        hold off; axis equal tight; view(-45,20); colorbar
+        xlabel('x'); ylabel('y'); zlabel('z')
+        title(sprintf('Emitted far field, %.1f nm, %d particles', D.lam(kk), D.N))
+
+    otherwise
+        error('Unknown emitted plot type "%s".', type);
+end
+end
+
+function E = far_field(D, rh, kk)
+% E(rhat) ~ sum_j exp(-i k rhat.r_j) (rhat x p_j) x rhat = Q - rhat (rhat.Q)
+p3 = dipoles_3D(D, kk);                                   % N x 3
+r  = [D.x D.y D.z]*1e-6;
+k  = double(D.Array.k(kk));
+Q  = exp(-1i*k*(rh*r.'))*p3;                              % M x 3
+E  = Q - rh.*sum(rh.*Q, 2);
+end
+
+function p3 = dipoles_3D(D, kk)
+p  = D.Pp(:,:,kk).';                                      % N x ncomp
+p3 = zeros(D.N, 3);
+switch string(D.Input.dimensionality)
+    case "3D",     p3 = p;
+    case "2D",     p3(:,1:2) = p;
+    case "1Dx",    p3(:,1) = p;
+    case "1Dy",    p3(:,2) = p;
+    case "1Dz",    p3(:,3) = p;
+    case "cyl_TM", p3(:,2) = p;        % assumed: field along the cylinder axis (y)
+    case "cyl_TE", p3(:,[1 3]) = p;    % line dipoles in the xz plane
+end
+end
+
+function alp = local_alpha(D, c, kk)
+% Polarizability of each particle for component c (Array.alpha is N x 3 x 3 x Nk)
+comp = c;
+switch string(D.Input.dimensionality)
+    case "1Dx", comp = 1;  case "1Dy", comp = 2;  case "1Dz", comp = 3;
+end
+alp = double(squeeze(dda_alpha(D.Array, (1:D.N).', kk, comp, comp)));   % full or compact storage
+end
+
+function lim_axes(lim)
+xlim([-lim lim]); ylim([-lim lim]); xlabel('\theta_x (deg)'); ylabel('\theta_y (deg)')
+end
+
+%% ========================================================================
+%  Eigenmode coefficients and band diagram (old plot_coefs, eig_banddiagram)
+%% ========================================================================
+function fig = plot_coefficients(D, n)
+w = abs(D.coefs).^2 ./ sum(abs(D.coefs).^2, 1, 'omitnan');
+lins = strongest_modes(D, n);
+fig = figure('Name','eigenmode coefficients'); hold on
+leg = strings(0);
+for lin = lins
+    plot(D.lam, w(lin,:), 'LineWidth', 1.5); leg(end+1) = mode_label(D, lin); %#ok<AGROW>
+end
+hold off; legend(leg, 'Location','best'); box on
+xlabel('Wavelength (nm)'); ylabel('|c|^2 / \Sigma|c|^2')
+title(sprintf('Most excited modes at %.1f nm', D.lam(D.ipeak)))
+end
+
+function fig = plot_eig_band(D)
+% Extinction of the (mx,0) and (0,my) modes vs energy; only the directions
+% with more than one particle (one panel for line arrays and cylinders)
+E3 = sum(reshape(D.extsall, D.Nk, D.shape(1), D.shape(2), []), 4, 'omitnan');   % sum pol/branch
+show = [D.shape(1) > 1, D.shape(2) > 1];
+if ~any(show), show(1) = true; end               % a single particle
+fig = dda_figure([100 100 550*nnz(show) 450], 'Name','eigenmode bands');
+tl = tiledlayout(fig, 1, nnz(show), 'TileSpacing','compact');
+if show(1)
+    nexttile(tl)
+    imagesc(D.lab_x, D.eV, E3(:,:,1)); set(gca,'YDir','normal')
+    xlabel('Mode number m_x'); ylabel('Energy (eV)'); c = colorbar; c.Label.String = 'Extinction';
+    if D.is_cyl, title('Modes m_x'); else, title('Modes (m_x, 0)'); end
+end
+if show(2)
+    nexttile(tl)
+    imagesc(D.lab_y, D.eV, reshape(E3(:,1,:), D.Nk, [])); set(gca,'YDir','normal')
+    xlabel('Mode number m_y'); ylabel('Energy (eV)'); title('Modes (0, m_y)'); c = colorbar; c.Label.String = 'Extinction';
+end
+title(tl, sprintf('Eigenmode bands: %s', run_label(D)))
+end
+
+%% ========================================================================
+function s = comp_name(c)
+names = 'xyz'; s = names(min(c,3));
+end
+
+function a = merge_deep(a, b)
+f = fieldnames(b);
+for n = 1:numel(f)
+    if isfield(a, f{n}) && isstruct(a.(f{n})) && isstruct(b.(f{n}))
+        a.(f{n}) = merge_deep(a.(f{n}), b.(f{n}));
+    else
+        a.(f{n}) = b.(f{n});
+    end
+end
+end

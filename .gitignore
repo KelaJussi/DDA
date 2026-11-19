@@ -1,0 +1,32 @@
+# MATLAB autosaves
+*.asv
+*.m~
+DDA_saved_defaults.m
+# Data, figures, media (regenerated, not versioned)
+*.mat
+*.fig
+*.avi
+*.pptx
+*.pdf
+*.zip
+*.tex
+
+# Results folders (add your complex-frequency results folder too)
+Real_freq_results/
+Complex_data/
+Data/
+DDA_favorites/
+Phase angles/
+chebfun-master/
+Voxscatter/
+
+# Personal / machine-specific (host names, local paths): never published
+Get_cpu_list_and_folder_hierarchy*.m
+# Old code: personal paths of several people and colleagues' unpublished work.
+# Only the legacy validation solvers (Input.use_legacy_eig_solvers = true) need it.
+DDA_codes/Archive/
+Help_functions/save_complex_freqs_modes JTK original.m
+
+# OS clutter
+Thumbs.db
+.DS_Store
