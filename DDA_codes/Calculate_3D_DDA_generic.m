@@ -92,7 +92,7 @@ for kk=1:Input.range.k_N %parfor
         %[Field]=Make_generic_fft_Field_gpu(Input,Array,kk,alpha_diag);
 
    if kk==1
-        disp(['Electric field: [' num2str(Field.Einc(1:3).'), ']. Gaussian: ' num2str(Input.Gaussian.bool)])
+        disp(['Electric field: [' num2str(Field.Einc(1:3).'), ']. Profile: ' char(string(Input.preset_field))])
    end
    %% Matrix inversion parts:
    switch Input.inversion_tool

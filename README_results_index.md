@@ -7,8 +7,14 @@ Every DDA run is saved to a `.mat` file named after its inputs:
 | complex frequencies (`range.imag_parts` ≠ 0) | `DDA/Complex_data` | `complex_freqs_plots_from_file` |
 | real frequencies | `DDA/Real_freq_results` | `real_freqs_plots_from_file` |
 
-The file names are long and do not hold every input. To find results by any input
-parameter, use `find_results`; to plot what you found, use `plot_results`.
+The names are compact lists of the main inputs, separated by spaces (lengths in nm,
+energies in eV), e.g.
+
+    1Dx 1x120 p(700,700) m[0000] PBCx700n10 HG10 r65 AuDM-BK7 L[0,0,90]Gau[80um,HG01] eig wl688.80-1239.84(N1500).mat
+
+(see `construct_filename.m` for every field). They do not hold every input. To find
+results by any input parameter, use `find_results`; to plot what you found, use
+`plot_results`.
 
 ---
 

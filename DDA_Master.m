@@ -219,25 +219,15 @@ function DDA_Master(Input)
         %Gain 0.00525, psi = 30, arrayN =65,65; p = 500 1060, radius = 70nm
 
 
-        Input.preset_field = 'none';
-        if Input.array_type == "PC_mirror_reflection_test"
-            Input.preset_field = 'PC_mirror_reflection_test';
-        end
-        %'hermite_JTK_tests','gaussian_proper', 'sine_y', 'none', 'exp_y', 'inverse_gaussian_y','gaussian_y', 'hermite_gaussian' 'gaussian_proper'
-        %Input.preset_field = 'gaussian_proper';
-        Input.Hermite_order_y = 2;Input.Hermite_order_x = 0;
-        Input.Hermite_scale_y = 1; Input.Hermite_scale_x = 1; %tested only for order 00, ie gaussian
-        Input.Hermite_R = inf;
-        Input.Hermite_offset_x = 0; %-1 - 1, from center, 1= at edge
-        Input.Hermite_offset_y = 0; 
-    
-        FWHM = 25e-6;
-        Input.Gaussian_w0 =FWHM/sqrt(2*log(2));
-        %Input.Gaussian_w0 =5.5e-6;
-        Input.Gaussian_z = 0;%pi*Input.Gaussian_w0^2/1550e-9;
-
-        Input.preset_sine_order = 3;
-        Input.preset_sine_phase = pi/2;
+        % Field profile: "none" (plane wave) or "Gaussian": a Hermite-Gaussian beam
+        % HG(Hermite_order_x, Hermite_order_y) centred on the array, waist w0 at a
+        % distance Gaussian_z from the array (z > 0: waist beyond the array).
+        % Cylinders: 1D beam in x (Hermite_order_y not used).
+        Input.preset_field = "none";
+        Input.Hermite_order_x = 0;  Input.Hermite_order_y = 0;
+        FWHM = 25e-6;                              % intensity FWHM at the waist
+        Input.Gaussian_w0 = FWHM/sqrt(2*log(2));   % waist radius (1/e^2 intensity)
+        Input.Gaussian_z  = 0;
         %% Other parameters
 
         Input.gain = 0.0e-3;
@@ -245,7 +235,6 @@ function DDA_Master(Input)
         %not important, obsolete tests
         Input.Hermitian = false;
        
-        Input.Gaussian.bool = false;
         %Input.Gaussian.theta = asin(3/f);
 
         Input.try2Das1D = 0;
@@ -343,6 +332,8 @@ function DDA_Master(Input)
         Input.track.method         = "hybrid";  % "basis" | "overlap" | "hybrid"
         Input.track.overlap_weight = 0.5;       % weight of eigenvector overlap in "hybrid"
         Input.track.basis          = "auto";    % "auto" (Fourier along periodic directions) | "sine" | "fourier"
+                                                % | "k" (plane wave that couples best, as the complex plots' "k" labels)
+        Input.track.k_step         = false;     % "k": undo the pi steps of half-shifted lattices first
         Input.track.store_P_eigs   = true;      % per-mode dipole moments, Ndof x Nk each
         Input.track.min_confidence = 0.5;       % basis score below this counts as unclear
         Input.track.max_memory_GB  = 8;         % guard: all eigenvectors are kept while tracking
@@ -522,7 +513,7 @@ function [C_out,P_out,Field_out,Array_out,Input] = DDA_calc_looped(Input)
     % Both pipelines: name the result file from the inputs; if the file exists
     % (and holds valid results) plot it, otherwise solve, save, then plot it.
     is_complex = any(Input.range.imag_parts);
-    if Input.preset_field == "PC_mirror_reflection_test"
+    if Input.array_type == "PC_mirror_reflection_test"
         PC_mirror_reflection_test(Input,Array);
         C_out = []; P_out = []; Field_out = []; Array_out = Array;
         return

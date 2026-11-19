@@ -202,8 +202,6 @@ function complex_freqs_plots_from_file(filename, plotting)
                 mult = mult*2;
             end
             all_modes = reshape(C.min_eig_vectors,Input.arrayN(1)*Input.arrayN(2)*mult,length(imag_freqs),length(real_freqs));
-            eVs = Input.range.eV(reshape(TF,[],1));
-            if ~isempty(Array), wls = Array.wl; end
             %wls = 1240./eVs;
             max_modes = all_modes(:,TF);
             max_freqs = complex_arr(TF);
@@ -495,34 +493,6 @@ function complex_freqs_plots_from_file(filename, plotting)
             mode = reshape(max_modes(:,modenmb), Input.arrayN(1),Input.arrayN(2)).';
         end
         [fftx, ffty] = label_xy(mode, modenmb, 1);
-        %% calculate mode absorption ratio
-        Input.proj_real_freq = true;
-        alpha = calc_alpha(Input, real(wls)); 
-        alpha = reshape(alpha,length(imag_freqs), length(real_freqs));
-       
-        alpha = alpha(TF);
-        alpha = alpha(modenmb);
-        %alpha = alpha(1,1);
-        c = 2.9979e8;
-        k0 = 5.06773e6 * to_eV(real(max_freqs(modenmb)));
-        
-
-        real_freq = to_eV(real(eVs(modenmb)));
-        if string(Input.substrate) == "BK7", n_host = sqrt(epsilon_BK7(real_freq));
-        else,                                n_host = Input.n;          % was always BK7
-        end
-
-        lin_idx = find(TF);
-        effective_idx = lin_idx(modenmb);
-        % Off-diagonal coupling from the solver's own builder (same mirrors and
-        % periodic boundaries as the run); the diagonal is not used
-        A_offdiagreal = Make_int_matrix_A_SI(Input, Array, effective_idx);   % real part of k
-         A_offdiagreal(1:size(A_offdiagreal,1)+1:end) = 0;
-        Input.proj_real_freq = false;
-        A_offdiag = Make_int_matrix_A_SI(Input, Array, effective_idx);       % complex k
-         A_offdiag(1:size(A_offdiag,1)+1:end) = 0;
-         
-        mode_absorption_ratio = Calculate_mode_absorption_ratio(mode,k0,A_offdiag,A_offdiagreal,n_host);
         %% plotting
         if fftx < maxfftyplt && ffty < maxfftyplt
             nexttile
@@ -587,8 +557,8 @@ function complex_freqs_plots_from_file(filename, plotting)
             box on
             set(gca, 'LineWidth', 1.5)
    
-            title(sprintf("Mode (%.0f,%.0f)%s",..., %s (abs: %.1f %%)", ...
-                fftx, ffty, conf_str(), freq_label(max_freqs(modenmb))));%, mode_absorption_ratio * 100))
+            title(sprintf("Mode (%.0f,%.0f)%s, %s", ...
+                fftx, ffty, conf_str(), freq_label(max_freqs(modenmb))));
             plotnmb = plotnmb + 1;
         end
        
@@ -930,43 +900,15 @@ function complex_freqs_plots_from_file(filename, plotting)
     end
 
     function K = k_setup(rpos, n)
-        % |k| grids and the calibration k_m (coupling peak of sin((m+1) pi u)) per direction
-        os = 10;  if any(n == 1), os = 40; end           % finer grid for line arrays
-        for dd = 1:2
-            c = rpos(:,dd);  span = max(c) - min(c);
-            if n(dd) <= 1 || span <= 0
-                K.k{dd} = 0;  K.km{dd} = 0;  K.dk(dd) = Inf;  K.E{dd} = ones(numel(c),1);
-                continue
-            end
-            d  = span/(n(dd)-1);
-            kg = (0:pi/(span+2*d)/os:1.05*pi/d).';
-            Eg = exp(1i*c*kg.');                           % N x nk
-            u  = (c - min(c) + d)/(span + 2*d);
-            Sk = abs(Eg.'*sin(pi*u*(1:n(dd)))).^2;         % real standing waves: +k and -k equal
-            [~, im] = max(Sk, [], 1);
-            K.k{dd} = kg;  K.km{dd} = kg(im);  K.E{dd} = Eg;
-            K.dk(dd) = 0.8*pi/(span + 2*d);                % half-width of a coupling peak
-        end
-        % sign flips of the half-period shifts (array_shifts): a gap of ~1.5
-        % lattice spacings starts a new segment; used with options.k_step
-        K.flip = ones(size(rpos,1), 1);
-        for dd = 1:2
-            if n(dd) <= 1, continue; end
-            cu = unique(round(rpos(:,dd)/1e-12))*1e-12;
-            if numel(cu) < 3, continue; end
-            gaps  = diff(cu);
-            stepc = cu([false; gaps > 1.25*median(gaps)]);      % first coordinate after a step
-            seg   = sum(rpos(:,dd) >= stepc.' - 1e-12, 2);
-            K.flip = K.flip .* (-1).^seg;
-        end
+        % |k| grids, calibration and step signs (shared with Track_eigenmodes)
+        K = dda_mode_basis("k_setup", rpos, n);
     end
 
     function [mk, conf, alt] = k_label(v)
         % coupling |v.' e_k|^2 to the plane waves exp(i(+-kx x +- ky y)), summed over the signs
-        Ex = LB.K.E{1};  Ey = LB.K.E{2};  v = v(:);
+        v = v(:);
         if o.k_step, v = v.*LB.K.flip; end               % undo the pi steps of shifted lattices
-        Ck = abs(Ey.'*(v.*Ex)).^2 + abs(Ey.'*(v.*conj(Ex))).^2 + ...
-             abs(Ey'*(v.*Ex)).^2  + abs(Ey'*(v.*conj(Ex))).^2;     % nky x nkx
+        Ck = dda_mode_basis("k_spectrum", LB.K, v);      % nky x nkx
         [c1, l1] = max(Ck(:));  [iy, ix] = ind2sub(size(Ck), l1);
         kx = LB.K.k{1}(ix);  ky = LB.K.k{2}(iy);
         near = abs(LB.K.k{2} - ky) < LB.K.dk(2) & abs(LB.K.k{1}.' - kx) < LB.K.dk(1);

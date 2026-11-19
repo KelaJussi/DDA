@@ -34,7 +34,12 @@ function C = Track_eigenmodes(C, vectors, Input, Array)
 %   method          ["hybrid"]  "basis" | "overlap" | "hybrid"
 %   overlap_weight  [0.5]       weight of the overlap cost in "hybrid"
 %   basis           ["auto"]    "auto" (Fourier along periodic directions,
-%                               sine otherwise) | "sine" | "fourier"
+%                               sine otherwise) | "sine" | "fourier" |
+%                               "k": the plane wave that couples most strongly
+%                               (same labels as labels = "k" in the complex
+%                               plots; see dda_mode_basis and theory.pdf)
+%   k_step          [false]     with "k": undo the pi steps of half-shifted
+%                               lattices first (step-matched labels)
 %   store_P_eigs    [true]      build C.P_eigs (Ndof x Nk per mode; large)
 %   min_confidence  [0.5]       basis score below which a label counts as unclear
 %   verbose         [true]

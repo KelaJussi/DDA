@@ -22,7 +22,7 @@ opens a window after the defaults are set. Tabs: **Array**, **Physics**, **Solve
   that differ from the defaults; **Cancel** (or closing the window) stops without running.
 * Options that only matter in a certain mode appear only when that mode is chosen:
   Lorentzian particle parameters, gmres parameters, thread/background/cluster settings,
-  Hermite and Gaussian beam parameters, tracking settings (eigen solver only), and the
+  Gaussian (Hermite-Gaussian) beam parameters, tracking settings (eigen solver only), and the
   settings of each plot once it is enabled.
 * `inversion_tool` is on both the Physics and the Solver tab; changing one updates the other.
 * **Figures as tabs:** with `Input.plotting.docked = true` (default) every plot figure opens
@@ -66,7 +66,7 @@ with its radius, coloured by z.
 How the edits are used:
 
 * They are applied right after the array is built (`dda_apply_array_edit`), for local runs and
-  cluster jobs alike, and the result file name gets `edited layout (n moved, m resized) #id`.
+  cluster jobs alike, and the result file name gets `edit(nm,mr)#id` (n moved, m resized).
 * They belong to the array they were made on. If `p`, `arrayN`, the lattice type or another
   array input changes afterwards, the GUI marks the edits as outdated and the run stops with
   a message instead of applying them to a different array.

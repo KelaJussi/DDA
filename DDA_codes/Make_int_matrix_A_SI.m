@@ -21,11 +21,6 @@ function [A]=Make_int_matrix_A_SI(Input,Array,kk)
 
 
 k=Array.k(kk);
-if isfield(Input,"proj_real_freq") 
-    if Input.proj_real_freq == 1
-        k = real(k);
-    end
-end
 %% JTK help funcitons
 r_i = double(Array.r_i);   % positions are stored single: the matrix must be built in double
 R = sqrt((r_i(:,1)-r_i(:,1).').^2 + (r_i(:,2)-r_i(:,2).').^2 + (r_i(:,3)-r_i(:,3).').^2);

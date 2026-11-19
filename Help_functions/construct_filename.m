@@ -1,33 +1,37 @@
 function filename = construct_filename(Input, kind)
-% Build a descriptive .mat filename from the simulation Input struct.
+% Build a compact, descriptive .mat filename from the simulation Input struct.
 %
-%   construct_filename(Input)          complex-frequency results (as before)
+%   construct_filename(Input)          complex-frequency results
 %   construct_filename(Input, "real")  real-frequency results: adds the
 %                                      material, incident field and solver,
-%                                      and gives the range in nm
+%                                      and gives the range as wavelengths
 %
-% The name is a comma-separated list of parts. Each part comes from one
-% small helper function below; a helper returns '' when its part does not
-% apply, and empty parts are dropped. To add a new section to the name,
-% write a helper and add one line to the parts list.
-%
-% For configurations without the new options, the name is identical to
-% the one from the previous version, so old results can still be found.
+% Fields are separated by single spaces and contain no spaces themselves.
+% Units are implied: lengths in nm, except the beam waist and focus distance of
+% a Gaussian field (marked um); energies in eV. Example (real frequencies):
+%   1Dx 1x120 p(700,700) m[0000] PBCx700n10 HG10 r65 AuDM-BK7 L[0,0,90]Gau[80um,HG01] eig wl688.80-1239.84(N1500).mat
+%   dimensionality, array size, periods, mirrors, periodic boundary (x: cell 700,
+%   10 image cells per side), half-period shifts (HGyx), radius, particle on
+%   substrate, field (polarization L/RC/LC [theta,phi,psi], Gaussian [w0,(z,)HGxy]),
+%   solver, wavelength range (points).
+% Each field comes from one small helper below; a helper returns '' when its
+% field does not apply, and empty fields are dropped. Names that would make the
+% path too long for Windows are shortened (fit_path).
 
 if nargin < 2, kind = "complex"; end
 is_real = lower(string(kind)) == "real";
 
 parts = {
     char(Input.dimensionality)
-    sprintf('%d x %d', Input.arrayN(1), Input.arrayN(2))
-    sprintf('p=(%d,%d)', floor(Input.p(1)*1e9), floor(Input.p(2)*1e9))
+    sprintf('%dx%d', Input.arrayN(1), Input.arrayN(min(2,end)))
+    sprintf('p(%d,%d)', floor(Input.p(1)*1e9), floor(Input.p(2)*1e9))
     part_array_type(Input)
-    part_periodic(Input)      % new: only added when a periodic boundary is on
-    part_HG(Input)
-    sprintf('r=%d nm', ceil(Input.particle.r*1e9))
-    part_particle(Input)      % new: only for non-Mie particles (Lorentzian)
-    part_array_edit(Input)    % new: only when the layout was edited in the array editor
-    part_cylinders(Input)     % new: only for cyl_TM / cyl_TE (materials, layered background)
+    part_periodic(Input)      % only when a periodic boundary is on
+    part_HG(Input)            % only with half-period shifts
+    sprintf('r%d', ceil(Input.particle.r*1e9))
+    part_particle(Input)      % only for Lorentzian particles
+    part_array_edit(Input)    % only when the layout was edited in the array editor
+    part_cylinders(Input)     % only for cyl_TM / cyl_TE (materials, layered background)
     };
 if is_real
     parts = [parts; {
@@ -38,111 +42,131 @@ if is_real
 else
     parts = [parts; {part_range(Input)}];
 end
-parts = [parts; {char(Input.save_message)}];
+if isfield(Input, 'save_message'), parts = [parts; {char(Input.save_message)}]; end
 
 parts = parts(~cellfun(@isempty, parts));
-filename = string([strjoin(parts.', ', ') '.mat']);
+filename = string([strjoin(parts.', ' ') '.mat']);
+filename = fit_path(filename, kind);
+end
+
+%% ------------------------------------------------------------ path length
+function filename = fit_path(filename, kind)
+% Windows paths are limited to 259 characters, and MATLAB's -v7.3 (HDF5) save
+% then fails with "Unable to write to file ... because it appears to be
+% corrupt". If folder + name is longer, the name keeps its beginning and gets
+% a fingerprint of the full name instead of the rest: "<start> ... #<hash>.mat".
+% The shortening is deterministic, so a re-run finds the file again; the full
+% inputs are inside the file (Input), which find_results reads.
+maxlen = 255;                                    % a little below 259
+folder = dda_results_folder(kind);
+room   = maxlen - strlength(string(folder)) - 1;
+if strlength(filename) <= room, return; end
+full = char(filename);
+tag  = [' ... #' dda_checksum(double(full)) '.mat'];
+keep = room - numel(tag);
+if keep < 20
+    error('construct_filename:path', ['The results folder path is too long (%d characters) ' ...
+          'for result files on Windows. Move the DDA folder to a shorter path.'], strlength(string(folder)));
+end
+filename = string([strtrim(full(1:keep)) tag]);
+fprintf('Result name shortened to stay below the Windows path limit:\n  %s\n', filename);
 end
 
 %% ---------------------------------------------------------------- parts
 function s = part_array_type(Input)
-% Section that depends on the array type
 switch char(Input.array_type)
     case 'double_rectangular'
         o = Input.second_array_offset*1e9;
-        s = sprintf('double [%.4f, %.4f, %.4f]', o(1), o(2), o(3));
+        s = sprintf('dbl(%g,%g,%g)', round(o(1),1), round(o(2),1), round(o(3),1));
     case 'PC_mirrors'
-        s = sprintf('PC %d NPs [%.3e, %.3e; %.3e, %.3e]', Input.PC_mirror_thickness, ...
-            Input.PC_mirror_p(1), Input.PC_mirror_p(2), ...
-            Input.PC_mirror_offset(1), Input.PC_mirror_offset(2));
+        s = sprintf('PC%d(%g,%g;%g,%g)', Input.PC_mirror_thickness, ...
+            round(Input.PC_mirror_p(1)*1e9,1), round(Input.PC_mirror_p(2)*1e9,1), ...
+            round(Input.PC_mirror_offset(1)*1e9,1), round(Input.PC_mirror_offset(2)*1e9,1));
     otherwise
-        m = Input.mirror_A;
-        s = sprintf('mirror [%d,%d,%d,%d]', m(1), m(2), m(3), m(4));
+        m = zeros(1,4); m(1:numel(Input.mirror_A)) = Input.mirror_A;
+        if all(ismember(m, [0 1])), s = sprintf('m[%d%d%d%d]', m);       % m[1100]
+        else,                       s = sprintf('m[%d,%d,%d,%d]', m);    % m[1,-1,0,0]
+        end
 end
 end
 
 function s = part_periodic(Input)
-% Periodic boundaries, e.g. 'PBC [1,0] L=(300,0) nm Nc=(10,0)'
-% (same defaults as Make_int_matrix_A_SI; 'auto' = cell size inferred
-% from the particle positions)
+% e.g. PBCx700n10: periodic in x, cell 700 nm, 10 image cells on each side
+% ('auto' = cell size inferred from the positions; same defaults as Make_int_matrix_A_SI)
 s = '';
-if ~isfield(Input,'periodic_boundary') || ~any(Input.periodic_boundary)
-    return
-end
+if ~isfield(Input,'periodic_boundary') || ~any(Input.periodic_boundary), return; end
 pbc = logical(Input.periodic_boundary(:).');
-
 Nc = [10 10];
-if isfield(Input,'periodic_Ncells')
-    Nc = double(Input.periodic_Ncells(:).') .* [1 1];
-end
-Nc(~pbc) = 0;
-
+if isfield(Input,'periodic_Ncells'), Nc = double(Input.periodic_Ncells(:).') .* [1 1]; end
 L = [0 0];
 if isfield(Input,'periodic_cell') && ~isempty(Input.periodic_cell)
     L = double(Input.periodic_cell(:).') .* [1 1];
 end
-L(~pbc) = 0;
-Lstr = {sprintf('%d', round(L(1)*1e9)), sprintf('%d', round(L(2)*1e9))};
-Lstr(pbc & L <= 0) = {'auto'};
-
-s = sprintf('PBC [%d,%d] L=(%s,%s) nm Nc=(%d,%d)', pbc(1), pbc(2), ...
-    Lstr{1}, Lstr{2}, Nc(1), Nc(2));
+s = 'PBC';  dirs = 'xy';
+for d = find(pbc)
+    if L(d) > 0, Ls = sprintf('%d', round(L(d)*1e9)); else, Ls = 'auto'; end
+    s = sprintf('%s%s%sn%d', s, dirs(d), Ls, Nc(d));
+end
 end
 
 function s = part_HG(Input)
-if strcmp(Input.array_type, "1Dsquare_halfshifts2")
-    halfshifttype = 2;
-else
-    halfshifttype = 1;
-end
-s = sprintf('HG %d%d (%d)', Input.array_shifts_y, Input.array_shifts_x, halfshifttype);
+% half-period shifts of the lattice (array_shifts_y, array_shifts_x); '' without
+s = '';
+if Input.array_shifts_y == 0 && Input.array_shifts_x == 0, return; end
+s = sprintf('HG%d%d', Input.array_shifts_y, Input.array_shifts_x);
+if strcmp(char(Input.array_type), '1Dsquare_halfshifts2'), s = [s 'b']; end
 end
 
 function s = part_range(Input)
-% Kept exactly as before (incl. the missing space in '(N=..)eV') so that
-% names of old result files still match.
 re = Input.range.real_parts;
 im = Input.range.imag_parts;
-s = sprintf('range real %.4f - %.4f (N=%d)eV, imag %.4f - %.4f (N=%d) eV', ...
-    re(1), re(end), length(re), im(1), im(end), length(im));
+s = sprintf('Re%.4f-%.4f(N%d) Im%.4f-%.4f(N%d)', re(1), re(end), numel(re), im(1), im(end), numel(im));
 end
 %% ------------------------------------------- parts for real-frequency runs
 function s = part_material(Input)
-% Material and substrate; the radii only when the particle is anisotropic
-% (Lorentzian particles are described by part_particle instead)
+% particle-substrate, e.g. AuDM-BK7, glM1.476-n1.4665 (Lorentzian: part_particle)
 s = '';
 if is_lorentzian(Input), return; end
-s = sprintf('%s on %s', Input.sample.type, Input.substrate);
-if string(Input.sample.type) == "glass_Mie"
-    s = sprintf('%s n=%.3f', s, Input.Mie_glass_n);
-end
+s = sprintf('%s-%s', material_abbrev(Input), substrate_str(Input));
 if isfield(Input,'particle_gain') && Input.particle_gain ~= 0
-    s = sprintf('%s gain=%g', s, Input.particle_gain);
+    s = sprintf('%s_g%g', s, Input.particle_gain);
 end
 if isfield(Input.particle,'anisotropic') && Input.particle.anisotropic
-    s = sprintf('%s r=(%d,%d,%d) nm', s, round(Input.particle.rx*1e9), ...
+    s = sprintf('%s_r(%d,%d,%d)', s, round(Input.particle.rx*1e9), ...
         round(Input.particle.ry*1e9), round(Input.particle.rz*1e9));
 end
 end
 
+function a = material_abbrev(Input)
+switch char(Input.sample.type)
+    case 'Au_Drude_Mie',  a = 'AuDM';
+    case 'Au_Mie',        a = 'AuM';
+    case 'Au_Drude_MLWA', a = 'AuDMLWA';
+    case 'glass_Mie',     a = sprintf('glM%s', num2str(Input.Mie_glass_n, 6));
+    otherwise,            a = strrep(char(Input.sample.type), ' ', '');
+end
+end
+
+function s = substrate_str(Input)
+if strcmp(char(Input.substrate), 'const'), s = sprintf('n%s', num2str(Input.n, 6));
+else,                                      s = char(Input.substrate);
+end
+end
+
 function s = part_field(Input)
-% Incident field: polarization, angles and the parameters of the preset
-s = sprintf('Ei %s th=%g ph=%g psi=%g', Input.polarization, Input.theta, Input.phi, Input.psi);
-preset = string(Input.preset_field);
-switch preset
-    case "none"
-        return
-    case {"sine_y","exp_y"}
-        s = sprintf('%s %s ord=%g ph=%.3f', s, preset, Input.preset_sine_order, Input.preset_sine_phase);
-    case "gaussian_proper"
-        s = sprintf('%s %s w0=%.2f um z=%.2f um HG%d%d', s, preset, Input.Gaussian_w0*1e6, ...
-            Input.Gaussian_z*1e6, Input.Hermite_order_x, Input.Hermite_order_y);
-    case {"hermite_gaussian","hermite_JTK_tests"}
-        s = sprintf('%s %s HG%d%d sc=(%g,%g) off=(%g,%g) R=%g', s, preset, ...
-            Input.Hermite_order_x, Input.Hermite_order_y, Input.Hermite_scale_x, ...
-            Input.Hermite_scale_y, Input.Hermite_offset_x, Input.Hermite_offset_y, Input.Hermite_R);
-    otherwise
-        s = sprintf('%s %s', s, preset);
+% polarization [theta,phi,psi], then the profile: Gau[w0um,(z..um,)HGxy]
+switch char(Input.polarization)
+    case 'linear', pol = 'L';
+    otherwise,     pol = char(Input.polarization);       % RC, LC
+end
+s = sprintf('%s[%g,%g,%g]', pol, Input.theta, Input.phi, Input.psi);
+if any(strcmpi(char(string(Input.preset_field)), {'Gaussian', 'gaussian_proper'}))
+    g = sprintf('%.4gum', Input.Gaussian_w0*1e6);
+    if Input.Gaussian_z ~= 0, g = sprintf('%s,z%.4gum', g, Input.Gaussian_z*1e6); end
+    if Input.Hermite_order_x ~= 0 || Input.Hermite_order_y ~= 0
+        g = sprintf('%s,HG%d%d', g, Input.Hermite_order_x, Input.Hermite_order_y);
+    end
+    s = sprintf('%sGau[%s]', s, g);
 end
 end
 
@@ -153,39 +177,36 @@ end
 
 function s = part_range_real(Input)
 wl = Input.range.wl*1e9;
-s = sprintf('wl %.2f - %.2f nm (N=%d)', min(wl), max(wl), numel(wl));
+s = sprintf('wl%.2f-%.2f(N%d)', min(wl), max(wl), numel(wl));
 end
 
 %% ------------------------------------------------ edited layout (both kinds)
 function s = part_array_edit(Input)
-% '' without edits, so names of unedited runs do not change
 s = '';
 if ~isfield(Input, 'array_edit') || isempty(Input.array_edit) || ~Input.array_edit.enable, return; end
 E = Input.array_edit;
-s = sprintf('edited layout (%d moved, %d resized) #%s', E.n_moved, E.n_resized, E.hash);
+s = sprintf('edit(%dm,%dr)#%s', E.n_moved, E.n_resized, E.hash);
 end
 
 %% ------------------------------------------------ cylinders and layers (both kinds)
 function s = part_cylinders(Input)
-% '' unless the run uses cylinders. Materials of the cylinders and the host
-% (complex-frequency names do not have them otherwise) and the layer stack,
-% e.g. 'cyl n=1.33 in 1.4665, layers 1+host 1180nm z100+1.33 2000nm+1.52'
-% (top to bottom; no characters that Windows file names forbid)
+% '' unless the run uses cylinders: cylinder and host materials and the layer
+% stack, top to bottom, e.g. cyl1.33in1.4665_lay(1+h1180z100+1.33x2000+1.52)
 s = '';
 if ~any(strcmp(char(Input.dimensionality), {'cyl_TM','cyl_TE'})), return; end
 if strcmp(char(Input.sample.type), 'glass_Mie')
-    s = sprintf('cyl n=%s', num2str(Input.Mie_glass_n, 6));
+    s = sprintf('cyl%s', num2str(Input.Mie_glass_n, 6));
     if isfield(Input,'particle_gain') && Input.particle_gain ~= 0
-        s = sprintf('%s gain=%g', s, Input.particle_gain);
+        s = sprintf('%s_g%g', s, Input.particle_gain);
     end
 else
-    s = sprintf('cyl %s', char(Input.sample.type));
+    s = sprintf('cyl%s', material_abbrev(Input));
 end
-if strcmp(char(Input.substrate), 'const'), s = sprintf('%s in %s', s, num2str(Input.n, 6));
-else,                                      s = sprintf('%s in %s', s, char(Input.substrate));
+if strcmp(char(Input.substrate), 'const'), s = sprintf('%sin%s', s, num2str(Input.n, 6));
+else,                                      s = sprintf('%sin%s', s, char(Input.substrate));
 end
 if isfield(Input.particle,'cyl_alpha_legacy') && Input.particle.cyl_alpha_legacy
-    s = [s ' old alpha'];
+    s = [s '_oldalpha'];
 end
 if ~isfield(Input,'layers') || ~isfield(Input.layers,'enable') || ~Input.layers.enable, return; end
 Ly = Input.layers;
@@ -193,16 +214,16 @@ zc = Ly.host_thickness/2;
 if isfield(Ly,'z_cyl') && ~isempty(Ly.z_cyl), zc = Ly.z_cyl; end
 above = stack_str(Ly.above_n, getfield_or(Ly,'above_d'));
 below = stack_str(Ly.below_n, getfield_or(Ly,'below_d'));
-s = sprintf('%s, layers %s+host %gnm z%g+%s', s, strjoin(fliplr(above), '+'), ...
+s = sprintf('%s_lay(%s+h%gz%g+%s)', s, strjoin(fliplr(above), '+'), ...
     Ly.host_thickness*1e9, zc*1e9, strjoin(below, '+'));
 end
 
 function c = stack_str(n, d)
-% {'1.33 2000nm', '1.52'}: nearest layer first, the half-space has no thickness
+% {'1.33x2000', '1.52'}: nearest layer first, the half-space has no thickness
 c = cell(1, numel(n));
 for m = 1:numel(n)
     c{m} = num2str(n(m), 6);
-    if m <= numel(d), c{m} = sprintf('%s %gnm', c{m}, d(m)*1e9); end
+    if m <= numel(d), c{m} = sprintf('%sx%g', c{m}, d(m)*1e9); end
 end
 end
 
@@ -212,18 +233,18 @@ end
 
 %% ------------------------------------------------ particle model (both kinds)
 function s = part_particle(Input)
-% '' for the Mie particles, so complex names of Mie runs stay as before.
-% Lorentzian (MJH) particles: substrate, A0, tau, peaks, units and correction.
+% '' for the Mie particles. Lorentzian (MJH) particles: substrate, A0, tau (fs),
+% peaks, units and correction, e.g. Lor-BK7_A0=1e-07_tau=[1,4,4]fs_pk=[780,330,1000]_gaussian_none
 s = '';
 if ~is_lorentzian(Input), return; end
 P = Input.particle;
 units = 'gaussian'; if isfield(P,'lorentz_units'), units = char(P.lorentz_units); end
 corr  = 'none';     if isfield(P,'lorentz_correction'), corr = char(P.lorentz_correction); end
-s = sprintf('Lorentzian on %s A0=%s tau=%s fs peak=%s nm %s %s', Input.substrate, ...
+s = sprintf('Lor-%s_A0=%s_tau=%sfs_pk=%s_%s_%s', substrate_str(Input), ...
     fmt_values(P.scatter_strength, 1, '%.3g'), fmt_values(P.tau, 1e15, '%.3g'), ...
-    fmt_values(P.lambda_peak_vec, 1e9, '%.1f'), units, corr);
+    fmt_values(P.lambda_peak_vec, 1e9, '%g'), units, corr);
 if strcmpi(corr, 'MLWA') && isfield(P,'lorentz_mlwa_a')
-    s = sprintf('%s a=%d nm', s, round(P.lorentz_mlwa_a*1e9));
+    s = sprintf('%s_a=%d', s, round(P.lorentz_mlwa_a*1e9));
 end
 end
 
@@ -232,7 +253,7 @@ tf = any(strcmpi(string(Input.sample.type), ["Lorentzian","lorentzian Au","nonid
 end
 
 function s = fmt_values(v, scale, f)
-% 'a' if all equal, '[a,b,c]' for up to 3 values, else size and a checksum
+% 'a' if all equal, '[a,b,c]' for up to 3 values, else count and a checksum
 v = double(v(:).')*scale;
 if all(v == v(1))
     s = sprintf(f, v(1));
@@ -240,6 +261,6 @@ elseif numel(v) <= 3
     s = ['[' strjoin(arrayfun(@(x) sprintf(f, x), v, 'UniformOutput', false), ',') ']'];
 else
     h = mod(sum(round(v/max(abs(v))*1e6).*(1:numel(v))), 2^31);
-    s = sprintf('%d values #%x', numel(v), h);
+    s = sprintf('%dvals#%x', numel(v), h);
 end
 end

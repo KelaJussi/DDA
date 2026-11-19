@@ -71,9 +71,10 @@ end
 
 P    = single(P);     %#ok<NASGU>
 Einc = single(Einc);  %#ok<NASGU>
-if strlength(string(fullpath)) > 250
-    warning('save_real_freq_results:longPath', ...
-        'Path is %d characters; Windows may refuse paths over 260.', strlength(string(fullpath)));
+if ispc && strlength(string(fullpath)) > 259
+    % printed (DDA_Master switches warnings off); construct_filename normally prevents this
+    fprintf('Path is %d characters; Windows refuses paths over 259, the save will likely fail.\n', ...
+            strlength(string(fullpath)));
 end
 save(fullpath, 'Input', 'C', 'P', 'Einc', 'Array', 'info', '-v7.3');
 fprintf('Saved real-frequency results to %s\n', fullpath);

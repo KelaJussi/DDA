@@ -126,205 +126,19 @@ switch Input.dimensionality
 %         Field.normalization_scaler=max(abs(Field.Einc));
 end
 
-%% Make predifined structured incident field
-xsize = Input.arrayN(1);ysize = Input.arrayN(2);
-if Input.dimensionality=="3D"
-    dim = 3;
-elseif Input.dimensionality=="2D" || Input.dimensionality=="cyl_TE"
-    dim = 2;
-else
-    dim = 1;
-end
-switch Input.preset_field
+%% Field profile (Input.preset_field)
+%   "none"      plane wave (above)
+%   "Gaussian"  Hermite-Gaussian beam HG(mx,my) on top of it (gaussian_beam below)
+switch lower(char(string(Input.preset_field)))
     case 'none'
-        ;
-    case 'PC_mirror_reflection_test'
-        Field.Einc = reshape(Field.Einc,dim,xsize,ysize);
-        n_1 = (ysize-Input.PC_mirror_thickness) / 2 + 1;
-        if n_1<0
-            n_1 = 2;
-        end
-        Field.Einc(:,:,n_1:end) = 0;
-        Field.Einc = reshape(Field.Einc,[],1);
-
-    case'sine_y'
-        order = Input.preset_sine_order;
-        Field.Einc = reshape(Field.Einc,dim,xsize,ysize);
-        xvec = [1:xsize]/xsize-0.5;
-        Field.Einc = Field.Einc.*reshape(cos(xvec*order*pi+Input.preset_sine_phase),1,[],1);
-        if 0
-            figure(101)
-            imagesc(reshape(-Field.Einc(1,:,:),xsize,ysize))
-            colorbar
-        end
-        Field.Einc = reshape(Field.Einc,[],1);
-    case'exp_y'
-        order = Input.preset_sine_order;
-        Field.Einc = reshape(Field.Einc,dim,xsize,ysize);
-        Field.Einc = Field.Einc.*reshape(exp(1i*[1:xsize]/xsize*order*pi),1,[],1);
-        if 0
-            figure(101)
-            imagesc(reshape(abs(-Field.Einc(1,:,:)),xsize,ysize))
-            colorbar
-        end
-        Field.Einc = reshape(Field.Einc,[],1);
-    case 'inverse_gaussian_y'
-        vec = [1:xsize]/xsize; %normalized, 0 to 1
-        Field.Einc = reshape(Field.Einc,dim,xsize,ysize);
-        sigma2 = 0.05; mu = 0.5; 
-        Field.Einc = Field.Einc.*reshape(0.5-exp(-1*(vec-mu).^2./2/sigma2),1,[],1); %./sqrt(2*pi*sigma2)
-        if 0
-            figure(101)
-            imagesc(reshape(-Field.Einc(1,:,:),xsize,ysize))
-            colorbar
-        end
-        Field.Einc = reshape(Field.Einc,[],1);
-    case 'gaussian_y' %Gaussian only in magnitude, not in phase 
-        vec = [1:xsize]/xsize; %normalized, 0 to 1
-        Field.Einc = reshape(Field.Einc,dim,xsize,ysize);
-        sigma2 = 1; mu = 0.5; Rz = 0.02;
-        Field.Einc = Field.Einc.*reshape(exp((vec-mu).^2.*(-1./2/sigma2+1i/2/Rz)),1,[],1); %./sqrt(2*pi*sigma2)
-        %Field.Einc = Field.Einc.*exp(-1i*(vec-mu).^2)
-        if 0
-            figure(101)
-            %imagesc(reshape(-Field.Einc(1,:,:),xsize,ysize))
-            Einc = reshape(Field.Einc(1,:,:),xsize,ysize);
-            subplot(121)
-            imagesc(abs(Einc));colorbar
-            title(['Incident field, pol: ', num2str(1), ', absolute value'])
-            subplot(122)
-            imagesc(angle(Einc)/pi);colorbar
-             title("Incident field, phase/pi")
-        end
-        Field.Einc = reshape(Field.Einc,[],1);
-    case 'hermite_gaussian'
-        % Field profile always the size of the array
-        %x and y are all over the place
-        w0 =0.5; %2x the standard deviation of the gaussian
-        w0x= w0*Input.Hermite_scale_x;w0y =w0*Input.Hermite_scale_y;
-        vecx = reshape([1:xsize]/xsize*2-1+Input.Hermite_offset_x,1,[]); %normalized, -1 to 1
-        vecy =reshape([1:ysize].'/ysize*2-1+Input.Hermite_offset_y,1,1,[]); %normalized, -1 to 1
-        Field.Einc = reshape(Field.Einc,dim,xsize,ysize);
-       % x0=linspace(-2,2,501);
-       % [X,Y]=meshgrid(x0,x0); %create a grid of width 4 units x 4 units with 501x501 mesh
-        E0=exp(-(vecx.^2/w0x^2+vecy.^2/w0y^2).*(1+1i./Input.Hermite_R)); %create the gaussian
-        
-
-        Ax = hermiteH(Input.Hermite_order_x,sqrt(2)*vecx/w0x); 
-        % Ax = reshape(Ax(:,:,:,1),1,1,[]);
-        Ax = Ax(:,:,:,1);
-
-        vecy = reshape(vecy,1,[]);
-        Ay= hermiteH(Input.Hermite_order_y,sqrt(2)*vecy/w0y);
-        Ay = reshape(Ay(:,:,1,1),1,1,[]);
-       Ay = Ay(:,:,:,1);
-        Field.Einc=Field.Einc.*Ay.*Ax.*E0; 
-        if 0
-            figure(102)
-            subplot(121)
-            Einc = reshape(Field.Einc(1,:,:),xsize,ysize);
-            imagesc(abs(Einc).^2); colorbar;
-            title(['Incident field, pol: ', num2str(1), ', absolute value'])
-                subplot(122)
-                imagesc(angle(Einc)/pi);colorbar
-                 title("Incident field, phase/pi")
-                 
-        end
-        Field.Einc = reshape(Field.Einc,[],1);
-    case 'gaussian_proper'
-        n = 1;
-        w0 = Input.Gaussian_w0;
-        z = Input.Gaussian_z;
-        wl = 2*pi./Array.k(jj);
-        zR = pi*w0^2*n/wl;
-        wz = w0*sqrt(1+(z/zR).^2);
-        Rz = z*(1+(zR/z).^2);
-        if isnan(Rz)
-            Rz = inf;
-        end
-        phiz = atan(z/zR); %Guoy phase; is const over r, not included
-        % vecx = reshape([1:xsize]*Input.p(1)-xsize*Input.p(1)/2,1,1,[]); %true coordinates, 0 at center
-        % vecy = reshape([1:ysize]*Input.p(2)-ysize*Input.p(2)/2,1,[]); %true coordinates, 0 at centerend
-        % Field.Einc = reshape(Field.Einc,dim,ysize,xsize);
-        % E0 = w0/wz*exp(-(vecx.^2+vecy.^2).*(1./wz.^2+1i*Array.k(jj)./(2*Rz)));
-        % 
-        % Ax = hermiteH(Input.Hermite_order_x,sqrt(2)*vecx/wz); 
-        %  Ax = reshape(Ax(:,:,1,1),1,1,[]);
-        % Ax = Ax(:,:,:,1);
-        % 
-        % Ay= hermiteH(Input.Hermite_order_y,sqrt(2)*vecy/wz);
-        % Ay = Ay(:,:,:,1);
-        % Field.Einc=Field.Einc.*Ay.*Ax.*E0; 
-        % Field.Einc = Field.Einc.*E0;
-        % Field.Einc = reshape(Field.Einc,[],1);
-
-
-        %% second try, try different dimensions
-        vecx = reshape([1:xsize]*Input.p(1)-xsize*Input.p(1)/2,1,[]); %true coordinates, 0 at center
-        vecy = reshape([1:ysize]*Input.p(2)-ysize*Input.p(2)/2,1,1,[]); %true coordinates, 0 at centerend
-        Field.Einc = reshape(Field.Einc,dim,xsize,ysize);
-        E0 = w0/wz*exp(-(vecx.^2+vecy.^2).*(1./wz.^2+1i*Array.k(jj)./(2*Rz)));
-
-        Ax = hermiteH(Input.Hermite_order_x,sqrt(2)*vecx/wz); 
-         %
-        Ax = Ax(:,:,:,1);
-        
-        Ay= hermiteH(Input.Hermite_order_y,sqrt(2)*reshape(vecy,1,[])/wz);
-        Ay = reshape(Ay(:,:,1,1),1,1,[]);
-        Ay = Ay(:,:,:,1);
-        Field.Einc=Field.Einc.*Ay.*Ax.*E0; 
-        %Field.Einc = Field.Einc.*E0;
-        Field.Einc = reshape(Field.Einc,[],1); %first goes through pol, then x, then y
-    case 'hermite_JTK_tests'
-       % Field profile always the size of the array
-        %x and y are all over the place
-        w0 =0.5; %2x the standard deviation of the gaussian
-        w0x= w0*Input.Hermite_scale_x;w0y =w0*Input.Hermite_scale_y;
-        vecx = reshape([1:xsize]/xsize*2-1+Input.Hermite_offset_x,1,[]); %normalized, -1 to 1
-        vecy =reshape([1:ysize].'/ysize*2-1+Input.Hermite_offset_y,1,1,[]); %normalized, -1 to 1
-        Field.Einc = reshape(Field.Einc,dim,xsize,ysize);
-       % x0=linspace(-2,2,501);
-       % [X,Y]=meshgrid(x0,x0); %create a grid of width 4 units x 4 units with 501x501 mesh
-        E0=exp(-(vecx.^2/w0x^2+vecy.^2/w0y^2).*(1+1i./Input.Hermite_R)); %create the gaussian
-        
-        hermite_phase = ones(size(vecy)); 
-        %hermite_phase(1:ceil(length(hermite_phase)/2))=-1;
-        hermite_phase(ceil(length(hermite_phase)/2-5):ceil(length(hermite_phase)/2+5))=-1;
-        figure
-        %imagesc(squeeze(hermite_phase))
-        fourE0 = fftn(squeeze(E0.*hermite_phase),[1024,1024]);
-        fourE0 = fftshift(fourE0);
-        imagesc(squeeze(abs(fourE0)))
-        E0modulated = ifftn(hermite_phase.*fourE0);
-         Field.Einc=Field.Einc.*E0modulated; 
-         if 1
-            figure(101)
-            subplot(121)
-            Einc = reshape(Field.Einc(1,:,:),xsize,ysize);
-            imagesc(abs(Einc).^2); colorbar;
-            title(['Incident field, pol: ', num2str(1), ', absolute value'])
-                subplot(122)
-                imagesc(angle(Einc)/pi);colorbar
-                 title("Incident field, phase/pi")
-                 return
-        end
-
-    case 'nullfield'
-        Field.Einc = 0*Field.Einc;
+    case {'gaussian', 'gaussian_proper'}            % gaussian_proper: the old name
+        Field.Einc = gaussian_beam(Field.Einc, Input, Array_in, jj);
+    otherwise
+        error('Make_3D_Field_wl_looped:preset', ...
+            'Input.preset_field = "%s" is not available; use "none" or "Gaussian".', ...
+            char(string(Input.preset_field)));
 end
-function a=hermiteH(n,x)
-            %generate the nth hermite polynomial of x
-            %pratheeb N.P (2025). hermite gaussian beam (https://www.mathworks.com/matlabcentral/fileexchange/71642-hermite-gaussian-beam), MATLAB Central File Exchange. Retrieved February 12, 2025. 
-            % Produces a copy of the array at fourth dimension when n>1,
-            % for no apparent reason.
-            m=0:floor(n/2);
-            [q1,q2]=size(m);
-            s=ndims(x);
-            [g1,g2]=size(x);
-            X=repmat(x,[ones(1,s),q1, q2]);
-            m=permute(repmat(m,[g1,1,g2]),[1,3,2]);
-            a=factorial(n)*sum((-1).^m./(factorial(m).*factorial(n-2*m)).*(2*X).^(n-2*m),3);
-        end 
+
 %% remove unnecessary fieds from Array struct:
 % Field=rmfield(Field, 'Einc_Nx2');
 % Field=rmfield(Field, 'Phase');
@@ -346,4 +160,47 @@ function Save_function_workspace_when_debugging()
 end
 %Field.Einc =exp(1i*pi/2)*Field.Einc ;
 %Field.k = Field.k;
+end
+
+%% ------------------------------------------------------------------------
+function E = gaussian_beam(E, Input, Array, jj)
+% Hermite-Gaussian beam HG(mx,my), mx = Input.Hermite_order_x, my = Input.Hermite_order_y,
+% multiplying the plane wave E at the particle positions:
+%   u(x,y) = (w0/w) H_mx(sqrt(2) x/w) H_my(sqrt(2) y/w) exp(-(x^2+y^2)/w^2 - i k (x^2+y^2)/(2R))
+%   w = w0 sqrt(1+(z/zR)^2),  1/R = z/(z^2+zR^2),  zR = k w0^2/2 = pi w0^2 n/lambda0
+% w0 = Input.Gaussian_w0 (waist), z = Input.Gaussian_z: distance from the array to the
+% waist (z > 0: the waist lies beyond the array, the beam converges at the array;
+% z = 0: waist on the array, flat phase). The constant Gouy phase is left out.
+% x, y are measured from the centre of the array (midway between the outermost
+% particles), at the actual particle positions (shifted lattices, edited layouts).
+% Cylinders (cyl_TM, cyl_TE, infinite along y): a 1D beam in x, amplitude
+% sqrt(w0/w); Hermite_order_y does not apply.
+w0 = Input.Gaussian_w0;  z = Input.Gaussian_z;
+mx = round(Input.Hermite_order_x);  my = round(Input.Hermite_order_y);
+k  = Array.k(jj);                                  % wavenumber in the host medium
+zR = k*w0^2/2;
+w  = w0*sqrt(1 + (z/zR)^2);
+invR = z/(z^2 + zR^2);                             % 0 at the waist
+r  = double(Array.r_i);
+x  = r(:,1) - (min(r(:,1)) + max(r(:,1)))/2;
+y  = r(:,2) - (min(r(:,2)) + max(r(:,2)))/2;
+if any(strcmp(char(Input.dimensionality), {'cyl_TM', 'cyl_TE'}))
+    u = sqrt(w0/w) * hermite(mx, sqrt(2)*x/w) .* exp(-x.^2/w^2 - 1i*k*x.^2*invR/2);
+else
+    rho2 = x.^2 + y.^2;
+    u = (w0/w) * hermite(mx, sqrt(2)*x/w) .* hermite(my, sqrt(2)*y/w) ...
+        .* exp(-rho2/w^2 - 1i*k*rho2*invR/2);
+end
+ncomp = numel(E)/numel(u);                         % components interleaved per particle
+E = reshape(reshape(E, ncomp, []) .* reshape(u, 1, []), [], 1);
+end
+
+function h = hermite(n, t)
+% physicists' Hermite polynomial H_n(t): H0 = 1, H1 = 2t, H_{m+1} = 2t H_m - 2m H_{m-1}
+h = ones(size(t));
+if n == 0, return; end
+hm = h;  h = 2*t;
+for m = 1:n-1
+    hn = 2*t.*h - 2*m*hm;  hm = h;  h = hn;
+end
 end

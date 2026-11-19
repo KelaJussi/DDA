@@ -1,3 +1,92 @@
+# Fix: half-period shifts split the array into equal parts (November 2026)
+
+`DDA_codes/Make_generic_Array.m`: the shifts (`Input.array_shifts_x/y`, all lattice
+types that support them) started at index ceil(n*l/(shifts+1)), so one shift of a
+120-particle line gave parts of 59 and 61 and put the step one period off the centre.
+One helper, `apply_halfshifts`, now splits the n positions into shifts+1 parts as
+equal as possible (120: 60 + 60; 121: 61 + 60; two shifts of 120: 40 + 40 + 40).
+The x shifts also used p(2)/2 instead of p(1)/2 (wrong for non-square periods).
+Half-shifted geometries change; together with the new file names, old results are
+not reused.
+
+---
+
+# Update: compact result names; one field profile, Gaussian, corrected (November 2026)
+
+| File | |
+|---|---|
+| `Help_functions/construct_filename.m` | rewritten: compact names (below) |
+| `DDA_codes/Make_3D_Field_wl_looped.m` | presets reduced to "none" and "Gaussian"; Gaussian corrected |
+| `DDA_Master.m`, `Help_functions/DDA_parameter_GUI.m` | the old preset options removed |
+| `Help_functions/dda_update_derived_inputs.m` | old preset names in saved defaults/favorites: gaussian_proper -> Gaussian, others -> none (printed) |
+| `DDA_codes/Calculate_3D_DDA_generic.m` | no `Input.Gaussian.bool` |
+| `README.md`, `README_results_index.md` | name format |
+
+**Names**: fields separated by single spaces, no spaces or units inside them
+(lengths nm, energies eV; the beam waist in um), e.g.
+`1Dx 1x120 p(700,700) m[0000] PBCx700n10 HG10 r65 AuDM-BK7 L[0,0,90]Gau[80um,HG01] eig wl688.80-1239.84(N1500).mat`
+(113 characters; before 210). Mirrors `m[1100]` (or `m[1,-1,0,0]`), periodic boundary
+`PBCx700n10` (direction, cell, image cells per side), half-period shifts `HG10` (only
+when there are any; `HG10b` for 1Dsquare_halfshifts2), particle-substrate `AuDM-BK7`
+(AuDM, AuM, glM<n>, AuDMLWA; `n1.4665` for a constant host), field `L[theta,phi,psi]`
+(L, RC, LC) plus `Gau[w0um,(z..um,)HGxy]`. Results saved under the old names are not
+found under the new ones and are recalculated; `find_results` still finds them (it
+reads the inputs in the files).
+
+**Field profiles**: `Input.preset_field` is "none" (plane wave) or "Gaussian" (was
+gaussian_proper, still accepted). sine_y, exp_y, gaussian_y, inverse_gaussian_y,
+hermite_gaussian, hermite_JTK_tests and nullfield are removed, with their options
+(Hermite_scale/offset/R, preset_sine_*). The PC mirror test is selected by its array
+type only. Corrections to the Gaussian:
+* centred on the array: the centre was half a period off (an HG01 node fell on
+  particle 60 of 120 instead of between 60 and 61);
+* evaluated at the actual particle positions (it used index x period, so half-period
+  shifts, edited layouts and any other particle order were ignored);
+* cylinders: a 1D beam in x with amplitude sqrt(w0/w) (Hermite_order_y not used);
+* Hermite polynomials by recursion (the File Exchange helper is no longer needed).
+Unchanged: waist w0, z_R = k w0^2/2 in the host, w(z), curvature exp(-i k r^2/2R)
+(Gaussian_z > 0: waist beyond the array), no Gouy phase (constant).
+
+---
+
+# Fix: result files with long names could not be saved on Windows (November 2026)
+
+`Unable to write to file ... because it appears to be corrupt` came from the path length:
+folder + file name over 259 characters (e.g. a Gaussian/HG incident field adds ~45
+characters to the name), which MATLAB's -v7.3 save cannot handle on Windows.
+`construct_filename` now shortens names that would be too long, deterministically:
+the beginning of the name, then ` ... #<fingerprint of the full name>.mat`. Re-runs
+find the same file; names that fit are unchanged. `save_real_freq_results` prints
+(instead of a suppressed warning) if a path is still too long.
+
+---
+
+# Update: k labels for real-frequency runs, wider GUI, no mode absorption ratio (November 2026)
+
+| File | |
+|---|---|
+| `DDA_codes/dda_mode_basis.m` | modified: "k" labels (plane-wave coupling) shared by tracking and complex plots |
+| `DDA_codes/Track_eigenmodes.m` | modified: `Input.track.basis = "k"`, `Input.track.k_step` |
+| `DDA_codes/complex_freqs_plots_from_file.m` | modified: uses the shared k code; mode absorption ratio removed |
+| `DDA_codes/Make_int_matrix_A_SI.m`, `DDA_codes/calc_alpha.m` | modified: `Input.proj_real_freq` removed (only the absorption ratio used it) |
+| `DDA_codes/Calculate_mode_absorption_ratio.m` | deleted |
+| `Help_functions/DDA_parameter_GUI.m` | modified: window 1.1x wider; "k" basis and k_step on the Tracking tab |
+| `DDA_Master.m` | modified: `Input.track.k_step` |
+
+**Real-frequency runs** can label modes like the complex plots' `labels = "k"`:
+`Input.track.basis = "k"` (Tracking tab). The score of a label m is the strongest
+plane-wave coupling |v.' e_k|^2 among the k values nearest to its calibration k_m,
+so the best-scoring label is the k label of the complex plots (identical for line
+arrays; 2D arrays use a coarser k grid, 4 instead of 10 points per pi/L). Labels
+are assigned with the same matching as before ("basis", "overlap", "hybrid").
+`Input.track.k_step = true` undoes the pi steps of half-shifted lattices first.
+Along periodic directions with more than one cell, "k" falls back to "auto".
+
+**Mode absorption ratio** at complex frequencies (tile titles of 2D-grid scalar modes)
+removed with its helper and `Input.proj_real_freq`.
+
+---
+
 # Update: cleaned for the public repository (November 2026)
 
 * No personal paths, host names or project numbers in the code: `Input.cluster.project`

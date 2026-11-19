@@ -289,14 +289,8 @@ switch  Input.array_type
             r_yi=linspace(0,array_max_ylength,Input.arrayN(2));
             r_zi=linspace(0,array_max_zlength,Input.arrayN(3));
             
-            for ll = 1:(Input.array_shifts_y)
-                
-                 r_yi(ceil(length(r_yi)/(Input.array_shifts_y+1)*ll):end)=r_yi(ceil(length(r_yi)/(Input.array_shifts_y+1)*ll):end)+Input.p(2)/2;
-            end
-            for ll = 1:(Input.array_shifts_x)
-                
-                 r_xi(ceil(length(r_xi)/(Input.array_shifts_x+1)*ll):end)=r_xi(ceil(length(r_xi)/(Input.array_shifts_x+1)*ll):end)+Input.p(2)/2;
-            end
+            r_yi = apply_halfshifts(r_yi, Input.array_shifts_y, Input.p(2)/2);
+            r_xi = apply_halfshifts(r_xi, Input.array_shifts_x, Input.p(1)/2);
 
             Input.Nmax(1:3)=[Input.arrayN(1) Input.arrayN(2) Input.arrayN(3)];
             
@@ -398,14 +392,8 @@ switch  Input.array_type
 
             r_zi = 0;
        
-            for ll = 1:(Input.array_shifts_y)
-                
-                 r_yi(ceil(length(r_yi)/(Input.array_shifts_y+1)*ll):end)=r_yi(ceil(length(r_yi)/(Input.array_shifts_y+1)*ll):end)+Input.p(2)/2;
-            end
-            for ll = 1:(Input.array_shifts_x)
-                
-                 r_xi(ceil(length(r_xi)/(Input.array_shifts_x+1)*ll):end)=r_xi(ceil(length(r_xi)/(Input.array_shifts_x+1)*ll):end)+Input.p(2)/2;
-            end
+            r_yi = apply_halfshifts(r_yi, Input.array_shifts_y, Input.p(2)/2);
+            r_xi = apply_halfshifts(r_xi, Input.array_shifts_x, Input.p(1)/2);
 
             Input.Nmax(1:3)=[Input.arrayN(1) Input.arrayN(2) Input.arrayN(3)];
             
@@ -487,14 +475,8 @@ switch  Input.array_type
 
         r_zi = 0;
    
-        for ll = 1:(Input.array_shifts_y)
-            
-             r_yi(ceil(length(r_yi)/(Input.array_shifts_y+1)*ll):end)=r_yi(ceil(length(r_yi)/(Input.array_shifts_y+1)*ll):end)+Input.p(2)/2;
-        end
-        for ll = 1:(Input.array_shifts_x)
-            
-             r_xi(ceil(length(r_xi)/(Input.array_shifts_x+1)*ll):end)=r_xi(ceil(length(r_xi)/(Input.array_shifts_x+1)*ll):end)+Input.p(2)/2;
-        end
+        r_yi = apply_halfshifts(r_yi, Input.array_shifts_y, Input.p(2)/2);
+        r_xi = apply_halfshifts(r_xi, Input.array_shifts_x, Input.p(1)/2);
 
         Input.Nmax(1:3)=[Input.arrayN(1) Input.arrayN(2) Input.arrayN(3)];
         
@@ -565,14 +547,8 @@ switch  Input.array_type
 
         r_zi = 0;
    
-        for ll = 1:(Input.array_shifts_y)
-            
-             r_yi(ceil(length(r_yi)/(Input.array_shifts_y+1)*ll):end)=r_yi(ceil(length(r_yi)/(Input.array_shifts_y+1)*ll):end)+Input.p(2)/2;
-        end
-        for ll = 1:(Input.array_shifts_x)
-            
-             r_xi(ceil(length(r_xi)/(Input.array_shifts_x+1)*ll):end)=r_xi(ceil(length(r_xi)/(Input.array_shifts_x+1)*ll):end)+Input.p(2)/2;
-        end
+        r_yi = apply_halfshifts(r_yi, Input.array_shifts_y, Input.p(2)/2);
+        r_xi = apply_halfshifts(r_xi, Input.array_shifts_x, Input.p(1)/2);
 
         Input.Nmax(1:3)=[Input.arrayN(1) Input.arrayN(2) Input.arrayN(3)];
         
@@ -639,14 +615,8 @@ switch  Input.array_type
 
             r_zi = 0;
        
-            for ll = 1:(Input.array_shifts_y)
-                
-                 r_yi(ceil(length(r_yi)/(Input.array_shifts_y+1)*ll):end)=r_yi(ceil(length(r_yi)/(Input.array_shifts_y+1)*ll):end)+Input.p(2)/2;
-            end
-            for ll = 1:(Input.array_shifts_x)
-                
-                 r_xi(ceil(length(r_xi)/(Input.array_shifts_x+1)*ll):end)=r_xi(ceil(length(r_xi)/(Input.array_shifts_x+1)*ll):end)+Input.p(2)/2;
-            end
+            r_yi = apply_halfshifts(r_yi, Input.array_shifts_y, Input.p(2)/2);
+            r_xi = apply_halfshifts(r_xi, Input.array_shifts_x, Input.p(1)/2);
 
             Input.Nmax(1:3)=[Input.arrayN(1) Input.arrayN(2) Input.arrayN(3)];
             
@@ -711,14 +681,8 @@ switch  Input.array_type
             ryi2 = Input.second_array_offset(2); 
             rzi2 = Input.second_array_offset(3); 
 
-            for ll = 1:(Input.array_shifts_y)
-                
-                 r_yi(ceil(length(r_yi)/(Input.array_shifts_y+1)*ll):end)=r_yi(ceil(length(r_yi)/(Input.array_shifts_y+1)*ll):end)+Input.p(2)/2;
-            end
-            for ll = 1:(Input.array_shifts_x)
-                
-                 r_xi(ceil(length(r_xi)/(Input.array_shifts_x+1)*ll):end)=r_xi(ceil(length(r_xi)/(Input.array_shifts_x+1)*ll):end)+Input.p(2)/2;
-            end
+            r_yi = apply_halfshifts(r_yi, Input.array_shifts_y, Input.p(2)/2);
+            r_xi = apply_halfshifts(r_xi, Input.array_shifts_x, Input.p(1)/2);
 
             Input.Nmax(1:3)=[Input.arrayN(1) Input.arrayN(2) Input.arrayN(3)];
             
@@ -807,14 +771,8 @@ switch  Input.array_type
         r_yi=linspace(0,array_max_ylength,Input.arrayN(2));
         r_zi=linspace(0,array_max_zlength,Input.arrayN(3));
         
-        for ll = 1:(Input.array_shifts_y)
-            
-             r_yi(ceil(length(r_yi)/(Input.array_shifts_y+1)*ll):end)=r_yi(ceil(length(r_yi)/(Input.array_shifts_y+1)*ll):end)+Input.p(2)/2;
-        end
-        for ll = 1:(Input.array_shifts_x)
-            
-             r_xi(ceil(length(r_xi)/(Input.array_shifts_x+1)*ll):end)=r_xi(ceil(length(r_xi)/(Input.array_shifts_x+1)*ll):end)+Input.p(2)/2;
-        end
+        r_yi = apply_halfshifts(r_yi, Input.array_shifts_y, Input.p(2)/2);
+        r_xi = apply_halfshifts(r_xi, Input.array_shifts_x, Input.p(1)/2);
 
         Input.Nmax(1:3)=[Input.arrayN(1) Input.arrayN(2) Input.arrayN(3)];
             
@@ -864,14 +822,8 @@ switch  Input.array_type
             r_yi=linspace(0,array_max_ylength,Input.arrayN(2));
             r_zi=linspace(0,array_max_zlength,Input.arrayN(3));
             
-            for ll = 1:(Input.array_shifts_y)
-                
-                 r_yi(ceil(length(r_yi)/(Input.array_shifts_y+1)*ll):end)=r_yi(ceil(length(r_yi)/(Input.array_shifts_y+1)*ll):end)-Input.p(2)/2;
-            end
-            for ll = 1:(Input.array_shifts_x)
-                
-                 r_xi(ceil(length(r_xi)/(Input.array_shifts_x+1)*ll):end)=r_xi(ceil(length(r_xi)/(Input.array_shifts_x+1)*ll):end)-Input.p(2)/2;
-            end
+            r_yi = apply_halfshifts(r_yi, Input.array_shifts_y, -Input.p(2)/2);
+            r_xi = apply_halfshifts(r_xi, Input.array_shifts_x, -Input.p(1)/2);
 
             Input.Nmax(1:3)=[Input.arrayN(1) Input.arrayN(2) Input.arrayN(3)];
             
@@ -1541,4 +1493,17 @@ for ii=1:length(R_i)
     Array.r_i_conv(:,ii)=single(R_i{ii}(1:end));
 end
 
+end
+
+%% ------------------------------------------------------------------------
+function r = apply_halfshifts(r, nshift, step)
+% Half-period shifts of a lattice line (Input.array_shifts_x / _y): the n
+% coordinates are split into nshift+1 parts as equal as possible, and every
+% part after a split is moved by step (cumulative), e.g. n = 120, one shift:
+% particles 61..120 move, 60 + 60 (the old code split at ceil(n/2) = 60: 59 + 61).
+n = numel(r);
+for ll = 1:nshift
+    first = round(n*ll/(nshift+1)) + 1;
+    r(first:end) = r(first:end) + step;
+end
 end

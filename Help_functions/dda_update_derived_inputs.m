@@ -35,7 +35,14 @@ if ~isequal(Input.p, before.p) || ~isequal(Input.arrayN, before.arrayN)
         Input.Gaussian_sigma = Input.arrayN(1)*Input.p(1)/4*1.5;
     end
 end
-if Input.array_type == "PC_mirror_reflection_test"
-    Input.preset_field = 'PC_mirror_reflection_test';     % as in Make_predefined_Inputs
+% Field profiles: only "none" and "Gaussian" remain (saved defaults and favorites
+% may hold the old names)
+pf = lower(char(string(Input.preset_field)));
+if strcmp(pf, 'gaussian_proper') || strcmp(pf, 'gaussian')
+    Input.preset_field = "Gaussian";
+elseif ~strcmp(pf, 'none')
+    fprintf(['Input.preset_field = "%s" no longer exists (only "none" and "Gaussian"); ' ...
+             'using "none".\n'], pf);
+    Input.preset_field = "none";
 end
 end

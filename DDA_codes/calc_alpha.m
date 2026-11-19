@@ -2,11 +2,6 @@ function [alpha] = calc_alpha(Input, la,plott)
         if nargin ==2
             plott = 0;
         end
-        if isfield(Input,"proj_real_freq") 
-            if Input.proj_real_freq == 1
-                Input.range.eV = real(Input.range.eV);
-            end
-        end
         if Input.substrate == "BK7"
         
            eh = epsilon_BK7(Input.range.eV); 
