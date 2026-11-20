@@ -369,6 +369,21 @@ function DDA_Master(Input)
        Input.plotting.dipoles.profile_wls = 1060.4;  % profiles through the centre column (+ the peak)
        Input.plotting.dipoles.map_wl      = [];      % |p| map wavelength, [] = first wavelength
        Input.plotting.dipoles.surf_wls    = [];      % |p| surfaces coloured by phase, e.g. [1053 1066]
+       % |p| vs position and wavelength/energy (second panel of the dipole figures)
+       Input.plotting.dipoles.position_map.quantity         = "rss";   % "rss": sqrt(sum |p|^2) across the line, "mean", "center": centre column, "column"
+       Input.plotting.dipoles.position_map.column           = 0;       % 0-based column (row) for quantity "column"
+       Input.plotting.dipoles.position_map.spectral_unit    = "nm";    % "nm" or "eV"
+       Input.plotting.dipoles.position_map.spectral_lims    = [];      % [from to] in that unit, [] = all
+       Input.plotting.dipoles.position_map.position_unit    = "um";    % "um" or "index" (particle number, 0-based)
+       Input.plotting.dipoles.position_map.reverse_position = false;   % true: 0 at the top
+       Input.plotting.dipoles.position_map.spectral_axis    = "auto";  % "auto", "horizontal", "vertical"
+       Input.plotting.dipoles.position_map.overlay          = "none";  % "none", "extinction", "transmission" (right axis)
+       Input.plotting.dipoles.position_map.overlay_color    = [0.12 0.65 1];
+       Input.plotting.dipoles.position_map.colormap         = "pink";  % any colormap name, or an m x 3 matrix
+       Input.plotting.dipoles.position_map.clim             = [];      % [lo hi], [] = automatic
+       Input.plotting.dipoles.position_map.shading          = "flat";  % "flat" or "interp" (smooth)
+       Input.plotting.dipoles.position_map.colorbar_label   = "";      % "" = automatic, e.g. "Dipole moment"
+       Input.plotting.dipoles.position_map.show_title       = true;
 
        Input.plotting.Q.enable = true;              % Q-factor fit of the extinction
        Input.plotting.Q.wl     = [];                % [] = extinction peak

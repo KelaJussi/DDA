@@ -11,6 +11,8 @@ function figs = real_freqs_plots_from_file(file, plotting)
 %
 % Plots (Input.plotting.<name>.enable):
 %   dipoles       transmission, |p| vs position and wavelength, profiles, maps;
+%                 the |p| vs position panel has its own options (dipoles.position_map:
+%                 energy axis, particle numbers, extinction overlay, colormap, ...)
 %                 once for the driven response and once per selected eigenmode.
 %                 Line arrays (1 x Ny, Nx x 1) and cylinders (cyl_TM, cyl_TE):
 %                 transmission and |p| vs wavelength and position along the line
@@ -142,6 +144,10 @@ o.docked        = true;
 o.export_folder = "";
 o.dipoles      = struct('enable',true, 'modes',[0 0; 1 0; 0 1; 0 2; 0 3; 0 4], ...
                         'n_strongest',0, 'profile_wls',1060.4, 'map_wl',[], 'surf_wls',[]);
+o.dipoles.position_map = struct('quantity',"rss", 'column',0, 'spectral_unit',"nm", ...
+    'spectral_lims',[], 'position_unit',"um", 'reverse_position',false, ...
+    'spectral_axis',"auto", 'overlay',"none", 'overlay_color',[0.12 0.65 1], ...
+    'colormap',"pink", 'clim',[], 'shading',"flat", 'colorbar_label',"", 'show_title',true);
 o.Q            = struct('enable',true, 'wl',[], 'guess',30);
 o.incidence    = struct('enable',true, 'wl',800);
 o.apertures    = struct('enable',false, 'sizes',[1 10 20 30 40 60 80]);
@@ -349,18 +355,7 @@ if D.line ~= ""                                 % line array or cylinders: two p
     tl  = tiledlayout(fig, 1, 2, 'TileSpacing','compact');
     nexttile(tl)
     transmission_plot(D, T)
-    nexttile(tl)
-    M = sqrt(accum_rows(D.il, pabs.^2));         % positions x Nk (sums particles at one position)
-    if D.line == "y"
-        imagesc(D.lam, D.lv, M)
-        xlabel('Wavelength (nm)'); ylabel('y (\mum)')
-    else
-        imagesc(D.lv, D.lam, M.')
-        xlabel('x (\mum)'); ylabel('Wavelength (nm)')
-    end
-    set(gca,'YDir','normal'); colormap(gca, pink)
-    c = colorbar; c.Label.String = '|p|';
-    title(sprintf('|p| along %s', D.line))
+    position_map(nexttile(tl), D, pabs, T, o.position_map, D.line)
     title(tl, sprintf('%s: %s', what, run_label(D)))
     surface_plots(D, Pm, pabs, what, o)
     return
@@ -372,10 +367,7 @@ tl  = tiledlayout(fig, 2, 3, 'TileSpacing','compact');
 nexttile(tl)
 transmission_plot(D, T)
 
-nexttile(tl)                                     % summed over x, per y row
-rows = sqrt(accum_rows(D.iy, pabs.^2));
-imagesc(D.lam, D.yv, rows); set(gca,'YDir','normal')
-xlabel('Wavelength (nm)'); ylabel('y (\mum)'); title('|p| summed over x'); colorbar; colormap(gca, pink)
+position_map(nexttile(tl), D, pabs, T, o.position_map, "y")   % |p| per y row vs wavelength
 
 nexttile(tl)                                     % summed over y, per x column
 cols = sqrt(accum_rows(D.ix, pabs.^2));
@@ -406,6 +398,120 @@ title(sprintf('|p| at %.1f nm', D.lam(kmap)))
 
 title(tl, sprintf('%s: %s', what, run_label(D)))
 surface_plots(D, Pm, pabs, what, o)
+end
+
+function position_map(ax, D, pabs, T, o, dir)
+% |p| vs position along dir ("x" or "y") and wavelength or energy: the second
+% panel of the dipole figures. Options (Input.plotting.dipoles.position_map):
+%   quantity       "rss": sqrt(sum |p|^2) over the other direction, "mean": mean |p|,
+%                  "center": the centre column (row), "column": column (row) no. o.column
+%   column         0-based index across the line, for quantity "column"
+%   spectral_unit  "nm" or "eV";  spectral_lims [] or [from to] in that unit
+%   position_unit  "um" or "index" (particle number, 0-based)
+%   reverse_position  true: position axis increasing downwards (left to right
+%                  when it is the horizontal axis): 0 at the top
+%   spectral_axis  "auto", "horizontal" or "vertical"
+%   overlay        "none", "extinction" or "transmission" on a right-hand axis
+%                  (needs the spectral axis horizontal; "auto" then gives that)
+%   overlay_color  RGB;  colormap  name ("pink", "hot", ...) or an m x 3 matrix
+%   clim           [] or [lo hi];  shading  "flat" or "interp" (smooth)
+%   colorbar_label "" = automatic;  show_title  true/false
+if dir == "y", idx = D.iy; oth = D.ix; pos = D.yv; ovals = D.xv; odir = "x";
+else,          idx = D.ix; oth = D.iy; pos = D.xv; ovals = D.yv; odir = "y"; end
+np = numel(pos);
+q  = lower(string(o.quantity));
+switch q
+    case "rss"
+        M = sqrt(rows_of(idx, pabs.^2, np));
+        lab = '|p|';  if numel(ovals) > 1, lab = sprintf('|p| summed over %s', odir); end
+    case "mean"
+        M = rows_of(idx, pabs, np)./max(rows_of(idx, ones(D.N,1), np), 1);
+        lab = '|p|';  if numel(ovals) > 1, lab = sprintf('mean |p| over %s', odir); end
+    case {"center","centre","column"}
+        if q == "column", c = min(max(round(o.column) + 1, 1), numel(ovals));
+        else, [~, c] = min(abs(ovals - mean(ovals))); end
+        sel = oth == c;
+        M = sqrt(rows_of(idx(sel), pabs(sel,:).^2, np));
+        lab = '|p|';
+        if numel(ovals) > 1, lab = sprintf('|p| of %s column %d', odir, c - 1); end
+    otherwise
+        error('position_map.quantity must be "rss", "mean", "center" or "column", not "%s".', q);
+end
+M(rows_of(idx, ones(D.N,1), np) == 0, :) = NaN;     % positions without particles
+
+if lower(string(o.position_unit)) == "index"
+    pv = 0:np-1;  plab = sprintf('%s (NPs)', dir);
+else
+    pv = pos(:).';  plab = sprintf('%s (\\mum)', dir);
+end
+if lower(string(o.spectral_unit)) == "ev", sv = D.eV;  slab = 'Frequency (eV)';
+else,                                      sv = D.lam; slab = 'Wavelength (nm)'; end
+ov  = lower(string(o.overlay));
+sa  = lower(string(o.spectral_axis));
+hor = sa == "horizontal" || (sa == "auto" && (dir == "y" || ov ~= "none"));
+
+if hor, draw_map(ax, sv, pv, M,   o.shading); xlabel(ax, slab); ylabel(ax, plab);
+else,   draw_map(ax, pv, sv, M.', o.shading); xlabel(ax, plab); ylabel(ax, slab); end
+if ~isempty(o.spectral_lims)
+    if hor, xlim(ax, sort(o.spectral_lims)); else, ylim(ax, sort(o.spectral_lims)); end
+end
+if logical(o.reverse_position)
+    if hor, set(ax, 'YDir', 'reverse'); else, set(ax, 'XDir', 'reverse'); end
+end
+cm = o.colormap;
+if ~isnumeric(cm), cm = feval(char(cm), 256); end
+colormap(ax, cm)
+if ~isempty(o.clim), caxis(ax, o.clim); end
+cb = colorbar(ax);
+cbl = char(string(o.colorbar_label));  if isempty(cbl), cbl = lab; end
+cb.Label.String = cbl;
+if logical(o.show_title), title(ax, lab); end
+
+if ov ~= "none"
+    if ~hor
+        fprintf('position_map: the %s overlay needs spectral_axis "horizontal"; skipped.\n', ov);
+        return
+    end
+    if ov == "extinction", y = -log(T(:).'); ylb = 'Extinction';
+    else,                  y = T(:).';       ylb = 'Transmission'; end
+    oc = o.overlay_color;
+    yyaxis(ax, 'right')
+    plot(ax, sv, y, '-', 'Color', oc, 'LineWidth', 2)
+    ylabel(ax, ylb);  ax.YAxis(2).Color = oc;
+    yl = [min(0, min(y)) max(y)];  if diff(yl) <= 0, yl = yl + [-1 1]; end
+    ylim(ax, yl + [0 0.05*diff(yl)])
+    yyaxis(ax, 'left');  ax.YAxis(1).Color = [0.15 0.15 0.15];
+end
+end
+
+function M = rows_of(idx, vals, n)
+% sum the rows of vals that share idx, as an n x Nk array
+M = zeros(n, size(vals,2));
+if isempty(idx), return; end
+for k = 1:size(vals,2), M(:,k) = accumarray(idx(:), vals(:,k), [n 1]); end
+end
+
+function draw_map(ax, x, y, C, shading)
+% C(numel(y), numel(x)) at the points (x, y), which need not be evenly spaced
+% (energy axis). "flat": one cell per point; "interp": smooth between points.
+[x, ox] = sort(x(:).');  [y, oy] = sort(y(:).');  C = C(oy, ox);
+if lower(string(shading)) == "interp" && numel(x) > 1 && numel(y) > 1
+    surface(ax, x, y, zeros(size(C)), C, 'EdgeColor', 'none', 'FaceColor', 'interp');
+    xl = x([1 end]);  yl = y([1 end]);
+else
+    xe = cell_edges(x);  ye = cell_edges(y);
+    Cp = NaN(numel(ye), numel(xe));  Cp(1:end-1, 1:end-1) = C;
+    surface(ax, xe, ye, zeros(size(Cp)), Cp, 'EdgeColor', 'none', 'FaceColor', 'flat');
+    xl = xe([1 end]);  yl = ye([1 end]);
+end
+view(ax, 2);  box(ax, 'on');  set(ax, 'Layer', 'top', 'TickDir', 'out')
+xlim(ax, xl);  ylim(ax, yl)
+end
+
+function e = cell_edges(c)
+if numel(c) == 1, e = c + [-0.5 0.5]; return; end
+m = (c(1:end-1) + c(2:end))/2;
+e = [c(1) - (m(1) - c(1)), m, c(end) + (c(end) - m(end))];
 end
 
 function surface_plots(D, Pm, pabs, what, o)

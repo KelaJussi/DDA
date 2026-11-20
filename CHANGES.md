@@ -1,3 +1,25 @@
+# Update: options for the |p| vs position panel of the dipole figures (November 2026)
+
+`real_freqs_plots_from_file`: the second panel of the dipole figures (|p| vs position
+and wavelength; first row, centre for 2D arrays, right panel for lines and cylinders)
+has its own options, `Input.plotting.dipoles.position_map`:
+`quantity` ("rss" = sqrt(sum |p|^2) across the line, as before; "mean"; "center" =
+centre column only; "column" with `column`, 0-based), `spectral_unit` ("nm"/"eV") and
+`spectral_lims`, `position_unit` ("um"/"index" = particle number), `reverse_position`
+(0 at the top), `spectral_axis` ("auto"/"horizontal"/"vertical"), `overlay`
+("none"/"extinction"/"transmission" on a right-hand axis, `overlay_color`),
+`colormap`, `clim`, `shading` ("flat"/"interp"), `colorbar_label`, `show_title`.
+The energy axis is not evenly spaced, so the panel is drawn as a surface with cell
+edges at the midpoints rather than with imagesc. The defaults give the old panel.
+Plotting tab: "|p| vs position (second panel)". Example (centre column vs energy with
+the extinction, like the paper figure):
+`real_freqs_plots_from_file(f, struct('dipoles', struct('position_map', struct( ...
+'quantity',"center", 'spectral_unit',"eV", 'position_unit',"index", ...
+'reverse_position',true, 'overlay',"extinction", 'shading',"interp", ...
+'colorbar_label',"Dipole moment", 'show_title',false))))`.
+
+---
+
 # Update: optimal vs single-mode excitation plot for real-frequency runs (November 2026)
 
 `real_freqs_plots_from_file`: new plot `optimal`. For a unit-norm incident field E the
