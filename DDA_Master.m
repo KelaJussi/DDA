@@ -390,6 +390,11 @@ function DDA_Master(Input)
 
        Input.plotting.coefficients.enable  = true;  % weight of the most excited eigenmodes (eig)
        Input.plotting.coefficients.n_modes = 10;
+       Input.plotting.coef_map.enable      = true;  % |c| of every mode (incident field on the modes) as an (m_x,m_y) map (eig)
+       Input.plotting.coef_map.wls         = [];    % nm, [] = extinction peak; several values = several tiles
+       Input.plotting.optimal.enable       = true;  % best extinction over all unit-norm fields vs best single mode, and the ratio
+       Input.plotting.optimal.n_points     = 40;    % wavelengths where A is rebuilt (+ peaks, coef_map wls); slow for large arrays
+       Input.plotting.optimal.wls          = [];    % nm, extra wavelengths; [] = the coef_map ones
        Input.plotting.eig_band.enable      = true;  % (mx,0) and (0,my) mode extinctions vs energy (eig)
 
        % Complex-frequency plots (complex_freqs_plots_from_file); saved with the

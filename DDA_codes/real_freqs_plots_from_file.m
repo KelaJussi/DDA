@@ -21,6 +21,15 @@ function figs = real_freqs_plots_from_file(file, plotting)
 %   apertures     extinction seen through central apertures of different sizes
 %   emitted       "fraunhofer", "transmitted", "far_field", "quiver_ball"
 %   coefficients  weight of the most excited eigenmodes vs wavelength (eig only)
+%   coef_map      |c| of every labelled mode at chosen wavelengths: how strongly the
+%                 incident field projects on each mode (c = V \ Einc); a (m_x, m_y)
+%                 map, or |c| vs m for line arrays and cylinders (eig only)
+%   optimal       best extinction over all unit-norm incident fields (any amplitude
+%                 and phase on every dipole) vs the best single eigenmode, and their
+%                 ratio. 1 means exciting one mode is optimal; > 1 means a mixture of
+%                 non-orthogonal modes does better. Rebuilds A at n_points
+%                 wavelengths (plus the coef_map ones), so it takes a while for
+%                 large arrays; see theory.pdf, "Biorthogonal modes"
 %   eig_band      extinction of the (mx,0) and (0,my) modes vs energy (eig only);
 %                 only the direction(s) with more than one particle
 % All wavelengths in the options are in nm. Mode labels are 0-based (mx,my);
@@ -99,6 +108,15 @@ if opt.coefficients.enable
     if D.has_coefs, figs.coefficients = plot_coefficients(D, opt.coefficients.n_modes);
     else, fprintf('No eigenmode coefficients in this file; coefficient plot skipped.\n'); end
 end
+if opt.coef_map.enable
+    if D.has_coefs, figs.coef_map = plot_coef_map(D, opt.coef_map.wls);
+    else, fprintf('No eigenmode coefficients in this file; coefficient map skipped.\n'); end
+end
+if opt.optimal.enable
+    wls = opt.optimal.wls;
+    if isempty(wls) && opt.coef_map.enable, wls = opt.coef_map.wls; end
+    figs.optimal = plot_optimal_excitation(D, opt.optimal.n_points, wls);
+end
 if opt.eig_band.enable
     if D.has_band, figs.eig_band = plot_eig_band(D);
     else, fprintf('No tracked mode extinctions in this file; band plot skipped.\n'); end
@@ -131,6 +149,8 @@ o.emitted      = struct('enable',false, 'types',"fraunhofer", 'wls',630, ...
                         'angle_lim',2, 'fraunhofer_quantity',"P/alpha", ...
                         'anglex',linspace(-0.03,0.03,20), 'angley',[]);
 o.coefficients = struct('enable',true, 'n_modes',10);
+o.coef_map     = struct('enable',true, 'wls',[]);
+o.optimal      = struct('enable',true, 'n_points',40, 'wls',[]);
 o.eig_band     = struct('enable',true);
 end
 
@@ -185,6 +205,8 @@ end
 if D.has_band,  D.extsall = reshape(C.extsall, D.Nk, []); end
 if D.has_modes, D.P_eigs  = C.P_eigs(:);                  end
 if D.has_coefs, D.coefs   = reshape(C.coefs_ordered, [], D.Nk); end
+D.label_kind = "mode";
+if isfield(C,'track') && isfield(C.track,'basis'), D.label_kind = string(C.track.basis); end
 end
 
 function [u, iu, ic] = uniquetol_simple(v, tol)
@@ -701,6 +723,169 @@ end
 %% ========================================================================
 %  Eigenmode coefficients and band diagram (old plot_coefs, eig_banddiagram)
 %% ========================================================================
+function fig = plot_coef_map(D, wls)
+% |c| of the labelled modes, c = V \ Einc: how much of the incident field each
+% mode takes. One tile per wavelength (default: the extinction peak). The
+% polarizations and branches of a label are combined as sqrt(sum |c|^2).
+% Each tile gives the strongest mode and its share |c_max|^2 / sum |c|^2
+% (100 % = no other mode is excited). The eigenvectors are not orthogonal, so
+% the shares are a measure of selectivity, not exact energy fractions.
+if isempty(wls), wls = D.lam(D.ipeak); end
+A  = reshape(abs(D.coefs).^2, [D.shape(1:2), prod(D.shape(3:end)), D.Nk]);
+A  = sqrt(reshape(sum(A, 3, 'omitnan'), D.shape(1), D.shape(2), D.Nk));   % nx x ny x Nk
+[lx, ox] = sort(D.lab_x);  [ly, oy] = sort(D.lab_y);   % Fourier labels may be signed
+A  = A(ox, oy, :);
+show = [D.shape(1) > 1, D.shape(2) > 1];
+nt = numel(wls);
+fig = dda_figure([100 100 min(1500, 470*nt) 380], 'Name', 'mode coefficients');
+tl  = tiledlayout(fig, 1, nt, 'TileSpacing', 'compact');
+for wl = wls(:).'
+    [~, kk] = min(abs(D.lam - wl));
+    ax = nexttile(tl);
+    if all(show)                                   % 2D: map over (m_x, m_y)
+        imagesc(ax, lx, ly, A(:,:,kk).');  set(ax, 'YDir', 'normal');  axis(ax, 'tight')
+        xlabel(ax, 'Mode number m_x');  ylabel(ax, 'Mode number m_y')
+        colormap(ax, flipud(pink));  c = colorbar(ax);  c.Label.String = '|c|';
+    else                                           % line array: |c| vs m
+        if show(2), m = ly; a = squeeze(A(1,:,kk)); d = 'y'; else, m = lx; a = squeeze(A(:,1,kk)); d = 'x'; end
+        bar(ax, m, a, 0.8, 'FaceColor', [0.6 0.35 0.3], 'EdgeColor', 'none');  box(ax, 'on')
+        xlabel(ax, sprintf('Mode number m_%s', d));  ylabel(ax, '|c|');  axis(ax, 'tight')
+    end
+    Ak = A(:,:,kk);  P = Ak(:).^2;  P(isnan(P)) = 0;
+    [pmax, l] = max(P);  [ix, iy] = ind2sub(size(Ak), l);
+    if all(show) || ~any(show), lab = sprintf('(%d,%d)', lx(ix), ly(iy));
+    elseif show(2),            lab = sprintf('%d', ly(iy));
+    else,                      lab = sprintf('%d', lx(ix));
+    end
+    title(ax, sprintf('%.1f nm: mode %s takes %.1f %%', D.lam(kk), lab, 100*pmax/max(sum(P), eps)))
+end
+title(tl, sprintf('Incident field %s on the modes (%s labels): %s', field_label(D.Input), ...
+      D.label_kind, run_label(D)))
+end
+
+function s = field_label(I)
+% polarization, angles and profile of the incident field, e.g.
+% "linear (0, 0, 90)°, Gaussian w0 = 80 µm, HG01"
+s = sprintf('%s (%g, %g, %g)°', char(string(I.polarization)), I.theta, I.phi, I.psi);
+if isfield(I, 'preset_field') && any(strcmpi(char(string(I.preset_field)), {'Gaussian', 'gaussian_proper'}))
+    s = sprintf('%s, Gaussian w0 = %.3g µm', s, I.Gaussian_w0*1e6);
+    if I.Gaussian_z ~= 0, s = sprintf('%s, z = %.3g µm', s, I.Gaussian_z*1e6); end
+    s = sprintf('%s, HG%d%d', s, I.Hermite_order_x, I.Hermite_order_y);
+else
+    s = sprintf('%s, plane wave', s);
+end
+end
+
+%% ========================================================================
+%  Optimal excitation vs single-mode excitation
+%% ========================================================================
+function fig = plot_optimal_excitation(D, n_points, wls)
+% For a unit-norm incident field E (one value per dipole component) the
+% extinction is  ext = K * Im(E' * A^-1 * E),  K = 4*pi*k/cell  (/(4*pi*eps0*n^2)
+% for SI polarizabilities): the normalisation of dda_extinction, in which
+% area*I0 = cell*|E|^2. Hence
+%   one eigenmode v_a (|v_a| = 1):  ext_a   = K * Im(1/lambda_a)   (= C.extsall)
+%   best of all fields:             ext_opt = K * max eig of H,
+%                                   H = (A^-1 - A^-H)/(2i)  (Hermitian)
+% ext_opt >= max_a ext_a. Equality holds when the eigenvectors are orthogonal
+% (A normal); A is complex symmetric, not normal, so a mixture of modes can
+% do better. The overlap |u' v_best| between the optimal field u and the best
+% mode says how close the two are (1 = the same field). At the peak of an
+% isolated mode (Re 1/lambda = 0) the ratio is (1 + sqrt(K))/2, K = Petermann
+% factor |v|^4/|v.'v|^2 of the mode; drawn dotted for comparison.
+I = D.Input;  Ar = D.Array;  Nk = D.Nk;
+Kf = 4*pi*double(Ar.k(:).');
+if D.is_cyl, cell_area = I.p(1); else, cell_area = I.p(1)*I.p(2); end
+Kf = Kf/cell_area;
+if dda_alpha_is_SI(I, Ar), Kf = Kf/(4*pi*8.8541878188e-12)./double(Ar.n(:).').^2; end
+
+has_vals = isfield(D.C,'values') && ~isempty(D.C.values) && ~all(isnan(D.C.values(:)));
+single_all = NaN(1, Nk);
+if has_vals
+    single_all = Kf.*max(imag(1./double(D.C.values)), [], 1);
+end
+
+% Wavelengths at which A is rebuilt
+ks = unique(round(linspace(1, Nk, min(n_points, Nk))));
+[~, kp] = max(single_all);  if has_vals, ks = [ks kp]; end
+ks = [ks D.ipeak];
+for wl = wls(:).', [~, kk] = min(abs(D.lam - wl)); ks = [ks kk]; end %#ok<AGROW>
+ks = unique(ks);
+nks = numel(ks);
+opt_ext = NaN(1,nks);  sgl_ext = NaN(1,nks);  overlap = NaN(1,nks);  Kp = NaN(1,nks);
+fprintf('Optimal excitation: %d wavelengths, %d unknowns ... ', nks, D.N*D.ncomp);  t0 = tic;
+ws = warning('off', 'MATLAB:nearlySingularMatrix');  restore = onCleanup(@() warning(ws));
+wsel = ks == D.ipeak;                              % wavelengths reported in the console
+if has_vals, wsel = wsel | ks == kp; end
+for wl = wls(:).', [~, kk] = min(abs(D.lam - wl)); wsel = wsel | ks == kk; end
+for j = 1:nks
+    kk = ks(j);
+    A  = double(build_A(I, Ar, kk));
+    n  = size(A,1);
+    Ai = A \ eye(n);
+    H  = (Ai - Ai')/2i;  H = (H + H')/2;
+    [U, h] = eig(H, 'vector');
+    [hmax, i] = max(real(h));
+    u = U(:,i);
+    opt_ext(j) = Kf(kk)*hmax;
+    if has_vals                                    % best mode by inverse iteration
+        lam = double(D.C.values(:,kk));
+        [~, a] = max(imag(1./lam));  la = lam(a);
+        v = u;
+        for it = 1:3
+            v = (A - la*(1 + 1e-12)*eye(n)) \ v;  v = v/norm(v);
+        end
+    else                                           % no saved eigenvalues: solve here
+        [V, lam] = eig(A, 'vector');
+        [~, a] = max(imag(1./lam));  la = lam(a);  v = V(:,a)/norm(V(:,a));
+    end
+    sgl_ext(j) = Kf(kk)*imag(1/la);
+    overlap(j) = abs(u'*v);
+    Kp(j)      = 1/abs(v.'*v)^2;                   % Petermann factor of the best mode
+end
+fprintf('%.1f s\n', toc(t0));
+if ~has_vals, single_all(ks) = sgl_ext; end
+ratio = opt_ext./sgl_ext;
+
+fig = dda_figure([100 100 1000 420], 'Name', 'optimal excitation');
+tl  = tiledlayout(fig, 1, 2, 'TileSpacing', 'compact');
+ax = nexttile(tl);  hold(ax, 'on');  box(ax, 'on')
+plot(ax, D.lam, D.C.ext, 'Color', [0.5 0.5 0.5], 'LineWidth', 1.2, 'DisplayName', 'this incident field')
+if has_vals
+    plot(ax, D.lam, single_all, 'LineWidth', 1.5, 'DisplayName', 'best single mode')
+else
+    plot(ax, D.lam(ks), sgl_ext, '-', 'LineWidth', 1.5, 'DisplayName', 'best single mode')
+end
+plot(ax, D.lam(ks), opt_ext, 'o-', 'MarkerSize', 3, 'LineWidth', 1.2, 'DisplayName', 'optimal field')
+hold(ax, 'off');  axis(ax, 'tight');  legend(ax, 'Location', 'best')
+xlabel(ax, 'Wavelength (nm)');  ylabel(ax, 'Extinction (unit-norm field)')
+ax = nexttile(tl);
+yyaxis(ax, 'left');  plot(ax, D.lam(ks), ratio, 'o-', 'MarkerSize', 3, 'LineWidth', 1.5);  hold(ax, 'on')
+plot(ax, D.lam(ks), (1 + sqrt(Kp))/2, ':', 'LineWidth', 1.2);  hold(ax, 'off')
+ylabel(ax, 'ext_{opt} / ext_{best mode}');  yl = ylim(ax);  ylim(ax, [min(1, yl(1)) max(yl(2), 1.05)])
+yyaxis(ax, 'right'); plot(ax, D.lam(ks), overlap, '.--', 'LineWidth', 1)
+ylabel(ax, '|u^H v_{best}|');  ylim(ax, [0 1.02])
+legend(ax, {'optimal / best mode', '(1+\surdK)/2 of that mode', 'overlap'}, 'Location', 'best')
+xlabel(ax, 'Wavelength (nm)');  box(ax, 'on');  xlim(ax, [min(D.lam) max(D.lam)])
+[~, jp] = max(opt_ext);
+title(tl, sprintf(['Optimal vs single-mode excitation: at the optimum peak (%.1f nm) ' ...
+      'a mode mixture gives %.3g x the best mode, overlap %.2f. %s'], ...
+      D.lam(ks(jp)), ratio(jp), overlap(jp), run_label(D)))
+for j = find(wsel)
+    fprintf('  %8.2f nm  %7.4f eV  ratio %.4f  overlap %.3f  Petermann K %.3f\n', ...
+        D.lam(ks(j)), D.eV(ks(j)), ratio(j), overlap(j), Kp(j));
+end
+end
+
+function A = build_A(Input, Array, kk)
+% The solver's interaction matrix (as in Calculate_DDA_eigenmodes)
+switch string(Input.dimensionality)
+    case "cyl_TM", A = Make_cyl_TM_matrix_A_SI(Input, Array, kk);
+    case "cyl_TE", A = Make_cyl_TE_matrix_A_SI(Input, Array, kk);
+    otherwise,     A = Make_int_matrix_A_SI(Input, Array, kk);
+end
+end
+
 function fig = plot_coefficients(D, n)
 w = abs(D.coefs).^2 ./ sum(abs(D.coefs).^2, 1, 'omitnan');
 lins = strongest_modes(D, n);

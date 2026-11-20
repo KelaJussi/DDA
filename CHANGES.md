@@ -1,3 +1,40 @@
+# Update: optimal vs single-mode excitation plot for real-frequency runs (November 2026)
+
+`real_freqs_plots_from_file`: new plot `optimal`. For a unit-norm incident field E the
+extinction is K Im(E^H A^-1 E) (the normalisation of `dda_extinction`). One eigenmode
+gives K Im(1/lambda) (the `C.extsall` curves); the best of all fields gives K times the
+largest eigenvalue of (A^-1 - A^-H)/2i. Because A is complex symmetric, not normal, the
+modes are biorthogonal rather than orthogonal, and a mixture of modes can beat the best
+single mode. Left tile: this run's extinction, the best single mode and the optimum vs
+wavelength. Right tile: their ratio (1 = one mode is optimal) and the overlap
+|u^H v_best| of the optimal field with the best mode. The plot rebuilds A with the
+solver's own builders at `Input.plotting.optimal.n_points` evenly spaced wavelengths
+(default 40), plus the peaks and the coef_map wavelengths (or `optimal.wls`); the
+console lists ratio and overlap at those. Runs without saved eigenvalues (lean, or
+the direct solver) compute them at the same points. Slow for large arrays (one dense
+inverse and Hermitian eig per point): turn it off in the Plotting tab or set fewer
+points. Example (HG01 chain, 1x120): ratio 1.04 and overlap 0.98 at the strongest
+mode, up to 1.25 away from it. theory.pdf has a new section "Biorthogonal modes and
+optimal excitation".
+
+---
+
+# Update: coefficient map (incident field on the modes) for real-frequency runs (November 2026)
+
+`real_freqs_plots_from_file`: new plot `coef_map` (eig runs with mode tracking). |c| of
+every labelled mode, c = V \ Einc (stored as `C.coefs_ordered`), at chosen wavelengths
+(`Input.plotting.coef_map.wls`, nm; [] = extinction peak; several values = several
+tiles): an (m_x, m_y) map for 2D arrays, |c| vs m for line arrays and cylinders.
+Each tile names the strongest mode and its share |c_max|^2 / sum |c|^2 (100 % = no
+other mode excited); the overall title gives the incident field (polarization,
+angles, plane wave or Gaussian w0, z, HG order).
+Polarizations/branches of a label are combined as sqrt(sum |c|^2). The labels are those
+of the tracking (`Input.track.basis`, e.g. "sine" or "k"). Plotting tab: "Show
+coefficient map" and its wavelengths. Re-plot a saved file with
+`real_freqs_plots_from_file(file, struct('coef_map', struct('wls', [1060 1065])))`.
+
+---
+
 # Fix: half-period shifts split the array into equal parts (November 2026)
 
 `DDA_codes/Make_generic_Array.m`: the shifts (`Input.array_shifts_x/y`, all lattice
